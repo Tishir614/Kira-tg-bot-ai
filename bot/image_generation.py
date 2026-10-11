@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import aiohttp
 
 from bot.http_client import http_client
+from bot.furry_prompt import compose
 from bot.horde_client import HordeError, ai_horde
 from bot.image_styles import extract_style
 from bot.perchance_furry import PerchanceError, perchance_furry
@@ -125,13 +126,9 @@ class ImageGenerator:
         english = await to_english_tags(prompt, ai)
         if is_minor_request(english):
             raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
-        pieces = [KIRA_VISUAL] if kira else ["adult anthropomorphic furry"]
-        pieces.append(english[:1800])
+        final_prompt, negative = compose(english[:1800], kira_visual=KIRA_VISUAL if kira else "")
         if style_tags:
-            pieces.append(style_tags)
-        pieces.append("high quality, detailed, coherent anatomy, detailed face and paws")
-        final_prompt = ", ".join(pieces)
-        negative = "bad anatomy, extra limbs, extra tails, duplicate face, fused body, deformed paws, blurry, low quality, watermark, text, child, young"
+            final_prompt += ", " + style_tags
 
         providers = [x.strip().lower() for x in os.getenv("IMAGE_PROVIDERS", "horde,perchance,comfyui").split(",") if x.strip()]
         errors: list[str] = []

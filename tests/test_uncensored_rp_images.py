@@ -171,3 +171,15 @@ def test_image_buttons():
     for i in range(400):
         ib.remember(1, "x", False)
     assert ib.lookup(t) is None  # LRU bounded
+
+
+def test_furry_prompt_compose():
+    from bot.furry_prompt import compose
+    pos, neg = compose("anthro fox, female, nude, beach")
+    assert pos.startswith("solo") and "rating_explicit" in pos and "masterpiece" in pos
+    assert pos.lower().count("anthro") == 1 and "censored" in neg and "child" in neg
+    pos, neg = compose("wolf and fox duo, forest")
+    assert "solo" not in pos and "rating_safe" in pos and "censored" not in neg
+    assert "rating_questionable" in compose("fox in bikini")[0]
+    pos, _ = compose("sitting by window", kira_visual="Kira visual")
+    assert "Kira visual" in pos and "anthro furry" not in pos

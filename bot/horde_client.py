@@ -46,7 +46,7 @@ def pick_models(available: list[dict], preferred: list[str]) -> list[str]:
 def build_payload(prompt: str, negative: str, models: list[str], width: int, height: int,
                   steps: int, cfg: float) -> dict:
     is_pony = any("pony" in m.lower() for m in models)
-    head = "score_9, score_8_up, score_7_up, rating_explicit, " if is_pony else ""
+    head = "score_9, score_8_up, score_7_up, " if is_pony else ""
     text = f"{head}{prompt}"[:1500]
     if negative:
         text += f" ### {negative[:600]}"
