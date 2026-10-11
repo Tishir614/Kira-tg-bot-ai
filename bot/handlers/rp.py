@@ -25,6 +25,7 @@ HELP = (
     "• <code>/rp retry</code> — переписать последний ответ · <code>/rp undo</code> — откатить ход\n"
     "• <code>/rp save Имя</code> / <code>load Имя</code> / <code>list</code> — библиотека персонажей Киры\n"
     "• <code>/rp roll 2d6+1</code> — бросок кубиков (результат влияет на сюжет) · <code>/rp random</code> — случайная сцена\n"
+    "• <code>/rp voice on|off</code> — озвучивать ответы Киры голосом\n"
     "• <code>/rp export</code> — скачать сцену файлом\n"
     "• <code>/rp recap</code> — краткое содержание · <code>/rp status</code>\n"
     "• <code>/rp pause</code> / <code>resume</code> / <code>stop</code>\n"
@@ -72,6 +73,12 @@ async def _play(message: Message, scene: Scene, user_text: str, *, retry: bool =
             )
         await record_turn(ai, uid, cid, scene, user_text, answer)
         await _send(message, answer)
+        if getattr(profile, "voice_replies", False):
+            try:
+                voice = await ai.speech(answer[:1800])
+                await message.reply_voice(BufferedInputFile(voice, filename="kira-rp.ogg"))
+            except Exception:
+                log.debug("RP voice failed", exc_info=True)
     except AIUnavailable as exc:
         await message.reply(f"🦊 {html.escape(str(exc))}")
     except Exception:
@@ -138,6 +145,13 @@ async def rp_command(message: Message):
         last = scene.turns[-1]["u"]
         scene = await RPStore.update(uid, cid, turns=scene.turns[:-1], turn_count=max(0, scene.turn_count - 1))
         await _play(message, scene, last, retry=True)
+    elif cmd in {"voice", "голос"}:
+        on = rest.lower() in {"on", "вкл", "1", "да"}
+        if rest.lower() not in {"on", "off", "вкл", "выкл", "1", "0", "да", "нет"}:
+            await message.reply("Использование: <code>/rp voice on</code> или <code>/rp voice off</code>")
+            return
+        await MatureManager.update_profile(uid, voice_replies=on)
+        await message.reply(f"🎙 Голосовые ответы в RP: {'включены' if on else 'выключены'}.")
     elif cmd in {"save", "сохранить"}:
         if not rest or not scene.bot_char:
             await message.reply("Сначала задай карточку: <code>/rp char Имя | описание</code>, затем <code>/rp save имя</code>.")
