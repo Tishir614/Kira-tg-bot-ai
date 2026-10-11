@@ -212,3 +212,70 @@ def test_horde_uses_requested_size():
     from bot import horde_client as hc
     p = hc.build_payload("fox", "", ["Furry Epoch"], 768, 512, 28, 7)
     assert (p["params"]["width"], p["params"]["height"]) == (768, 512)
+
+
+def test_horde_falls_back_to_general_models_and_reports_label(monkeypatch):
+    from bot import horde_client as hc
+    live = [{"name": "Deliberate", "count": 2}, {"name": "Furry Epoch", "count": 0}]
+    assert hc.pick_models(live, ["Furry Epoch", "Fluffyrock"]) == []
+    assert hc.pick_models(live, hc.DEFAULT_FALLBACK.split(","), hints=False) == ["Deliberate"]
+
+    class Resp:
+        def __init__(self, data=None, raw=b""):
+            self._d, self._raw, self.status, self.headers = data, raw, 200, {"Content-Type": "image/webp"}
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def text(self): return str(self._d)
+        async def json(self, content_type=None): return self._d
+        async def read(self): return self._raw
+
+    class Session:
+        def request(self, method, url, **kw):
+            if url.endswith("/status/models"): return Resp(live)
+            if url.endswith("/generate/async"):
+                assert kw["json"]["models"] == ["Deliberate"]
+                return Resp({"id": "J"})
+            if "/generate/check/" in url: return Resp({"done": True})
+            return Resp({"generations": [{"img": "https://r2/x.webp", "censored": False}]})
+        def get(self, url, **kw): return Resp(raw=b"IMG")
+
+    async def fake_get(): return Session()
+    monkeypatch.setattr(hc.http_client, "get", fake_get)
+    horde = hc.AIHorde()
+    assert asyncio.run(horde.generate("anthro fox"))[0] == b"IMG" and horde.last_models == ["Deliberate"]
+    ok, msg = asyncio.run(horde.probe())
+    assert ok and "запасные: Deliberate" in msg
+
+
+def test_all_providers_failing_explains_why(monkeypatch):
+    async def horde_fail(*a, **k):
+        raise ig.HordeError("в AI Horde сейчас нет активных фурри-моделей")
+
+    async def perch_fail(*a, **k):
+        raise ig.PerchanceError("Perchance недоступен: timeout")
+
+    monkeypatch.setattr(ig.ai_horde, "generate", horde_fail)
+    monkeypatch.setattr(ig.perchance_furry, "generate", perch_fail)
+    monkeypatch.setattr("bot.ai_client.ai", type("A", (), {"enabled": False})())
+    gen = ImageGenerator()
+    gen.base_url = "http://127.0.0.1:9"  # nothing listens there
+    import pytest as _pytest
+    with _pytest.raises(ig.ImageGenerationError) as err:
+        asyncio.run(gen.generate("лиса на пляже"))
+    text = str(err.value)
+    assert "AI Horde:" in text and "нет активных фурри-моделей" in text
+    assert "Perchance:" in text and "ComfyUI:" in text
+
+
+def test_probe_never_raises(monkeypatch):
+    from bot import horde_client as hc
+    from bot import perchance_furry as pf
+
+    async def boom():
+        raise RuntimeError("no network")
+    monkeypatch.setattr(hc.http_client, "get", boom)
+    monkeypatch.setattr(pf.http_client, "get", boom)
+    ok, msg = asyncio.run(hc.AIHorde().probe())
+    assert not ok and "недоступен" in msg
+    ok, msg = asyncio.run(pf.PerchanceFurry().probe())
+    assert not ok and "недоступен" in msg

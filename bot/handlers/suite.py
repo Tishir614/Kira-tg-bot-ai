@@ -666,7 +666,11 @@ async def _image_variants_impl(message: Message, prompt: str, base_prompt: str, 
         return
     if not images:
         log.warning("image variants failed: %s", errors[:2])
-        await waiting.edit_text("🎨 Не получилось сгенерировать ни одного варианта. Попробуй позже.")
+        reason = html.escape(str(errors[0])[:450]) if errors else "неизвестная ошибка"
+        await waiting.edit_text(
+            "🎨 Не получилось сгенерировать ни одного варианта.\n"
+            f"<i>{reason}</i>\nВладелец может проверить: /image_health"
+        )
         return
     caption = f"🎨 <b>Готово: {len(images)} из {count}</b>\n{html.escape(base_prompt[:700])}\n<i>{html.escape(images[0].provider)}</i>"
     media = [
@@ -730,7 +734,12 @@ async def _image_generation_impl(message: Message, prompt: str, *, kira: bool = 
         await waiting.edit_text(f"🔞 {html.escape(str(exc))}")
     except ImageGenerationError as exc:
         log.warning("image generation failed: %s", exc)
-        await waiting.edit_text("🎨 Генератор изображений сейчас не ответил. Попробуй ещё раз позже.")
+        reason = html.escape(str(exc)[:450])
+        await waiting.edit_text(
+            "🎨 Не получилось нарисовать: генераторы не ответили.\n"
+            f"<i>{reason}</i>\n"
+            "Попробуй позже. Если повторяется — владелец может проверить: /image_health"
+        )
     except Exception:
         metrics.errors += 1
         log.exception("image generation failed")

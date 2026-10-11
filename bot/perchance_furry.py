@@ -117,4 +117,14 @@ class PerchanceFurry:
         return body, ctype
 
 
+    async def probe(self) -> tuple[bool, str]:
+        """Diagnostics: can we obtain a user key? Never raises."""
+        try:
+            session = await http_client.get()
+            await self._ensure_key(session)
+            return True, "OK: ключ получен"
+        except Exception as exc:
+            return False, f"недоступен: {type(exc).__name__}: {str(exc)[:160]}"
+
+
 perchance_furry = PerchanceFurry()

@@ -140,19 +140,19 @@ class ImageGenerator:
             try:
                 data, ctype = await ai_horde.generate(final_prompt, negative=negative, size=size)
                 usage_stats.safe("count", "img:horde")
-                return GeneratedImage(data, ctype, "AI Horde (furry)")
+                return GeneratedImage(data, ctype, f"AI Horde ({', '.join(ai_horde.last_models[:1]) or 'furry'})")
             except HordeError as exc:
-                errors.append(str(exc))
+                errors.append(f"AI Horde: {exc}")
         if "perchance" in providers and perchance_furry.enabled:
             try:
                 data, ctype = await perchance_furry.generate(final_prompt, negative=negative, size=size)
                 usage_stats.safe("count", "img:perchance")
                 return GeneratedImage(data, ctype, "Perchance furry-ai")
             except PerchanceError as exc:
-                errors.append(str(exc))
+                errors.append(f"Perchance: {exc}")
         if "comfyui" not in providers or not self.base_url:
             usage_stats.safe("count", "img:fail")
-            raise ImageGenerationError("; ".join(errors) or "Нет доступных генераторов изображений.")
+            raise ImageGenerationError("; ".join(errors) or "нет включённых генераторов (проверь IMAGE_PROVIDERS)")
         seed = random.SystemRandom().randint(1, 2**63 - 1)
         client_id = f"kira-{uuid.uuid4()}"
         session = await http_client.get()
@@ -181,10 +181,8 @@ class ImageGenerator:
             except ImageGenerationError:
                 raise
             except Exception as exc:
-                raise ImageGenerationError(
-                    "ComfyUI недоступен. Запусти: docker compose --profile image up -d --build comfyui. Ошибка: " + str(exc)
-                    + ("".join(f" | {e}" for e in errors))
-                ) from exc
+                errors.append(f"ComfyUI: недоступен ({type(exc).__name__}) — локальный генератор не запущен")
+                raise ImageGenerationError("; ".join(errors)) from exc
 
         if not body or len(body) > 25 * 1024 * 1024:
             raise ImageGenerationError("ComfyUI вернул пустой или слишком большой файл.")

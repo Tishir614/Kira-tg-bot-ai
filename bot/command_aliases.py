@@ -102,6 +102,7 @@ RUSSIAN_COMMAND_ALIASES: dict[str, str] = {
     "fursona": "фурсона",
     "me_image": "я_картинка",
     "stats": "статистика",
+    "image_health": "проверка_картинок",
     "styles": "стили",
     "forget": "забыть",
     "rp18": "рп18",

@@ -18,13 +18,15 @@ CLIENT_AGENT = "KiraBot:2.5:github.com/tishir614/kira-tg-bot-ai"
 # Preferred furry models, best first. Matched case-insensitively against live worker models.
 DEFAULT_MODELS = "Fluffyrock Unbound,Furry Epoch,yiffy,Pony Diffusion XL,Indigo Furry Mix,Fluffusion"
 FURRY_HINTS = ("furry", "fluffy", "yiff", "e621", "pony", "anthro")
+# Used only when no furry-trained model has a live worker: general models still draw anthros from tags.
+DEFAULT_FALLBACK = "Deliberate,Dreamshaper,Anything Diffusion,stable_diffusion"
 
 
 class HordeError(RuntimeError):
     pass
 
 
-def pick_models(available: list[dict], preferred: list[str]) -> list[str]:
+def pick_models(available: list[dict], preferred: list[str], *, hints: bool = True) -> list[str]:
     """Choose live models: preferred names first (by active workers), then any furry-looking model."""
     names = {str(m.get("name", "")): int(m.get("count", 0) or 0) for m in available}
     lower = {n.lower(): n for n in names}
@@ -36,7 +38,7 @@ def pick_models(available: list[dict], preferred: list[str]) -> list[str]:
         for low, real in lower.items():
             if (low == w or w in low) and real not in chosen and names[real] > 0:
                 chosen.append(real)
-    if not chosen:
+    if not chosen and hints:
         for low, real in lower.items():
             if names[real] > 0 and any(h in low for h in FURRY_HINTS):
                 chosen.append(real)
@@ -75,6 +77,8 @@ class AIHorde:
         self.steps = max(10, min(50, int(os.getenv("HORDE_STEPS", "28") or 28)))
         self.cfg = max(1.0, min(15.0, float(os.getenv("HORDE_CFG", "7") or 7)))
         self.timeout = max(60, int(os.getenv("HORDE_TIMEOUT", "300") or 300))
+        self.fallback = [m for m in os.getenv("HORDE_FALLBACK_MODELS", DEFAULT_FALLBACK).split(",") if m.strip()]
+        self.last_models: list[str] = []
 
     @staticmethod
     def _dim(value: str) -> int:
@@ -104,8 +108,11 @@ class AIHorde:
         try:
             available = await self._json(session, "GET", "/status/models", params={"type": "image"})
             models = pick_models(available if isinstance(available, list) else [], self.models)
+            if not models and self.fallback:
+                models = pick_models(available if isinstance(available, list) else [], self.fallback, hints=False)
             if not models:
-                raise HordeError("Сейчас в AI Horde нет активных фурри-моделей.")
+                raise HordeError("в AI Horde сейчас нет активных фурри-моделей (и запасных тоже)")
+            self.last_models = models
             sub = await self._json(session, "POST", "/generate/async",
                                    json=build_payload(prompt, negative, models, *(size or (self.width, self.height)),
                                                       self.steps, self.cfg))
@@ -150,6 +157,27 @@ class AIHorde:
         if not body or len(body) > 25 * 1024 * 1024:
             raise HordeError("AI Horde вернул пустой или слишком большой файл.")
         return body, ctype
+
+
+    async def probe(self) -> tuple[bool, str]:
+        """Diagnostics: reachability and which models have live workers. Never raises."""
+        import time as _t
+
+        started = _t.monotonic()
+        try:
+            session = await http_client.get()
+            available = await self._json(session, "GET", "/status/models", params={"type": "image"})
+            available = available if isinstance(available, list) else []
+            furry = pick_models(available, self.models)
+            general = pick_models(available, self.fallback, hints=False)
+            took = _t.monotonic() - started
+            if furry:
+                return True, f"OK ({took:.1f} c): фурри-модели {', '.join(furry[:3])}"
+            if general:
+                return True, f"OK ({took:.1f} c), но фурри-моделей нет; запасные: {', '.join(general[:3])}"
+            return False, f"доступен, но нет подходящих моделей (активных моделей всего: {len(available)})"
+        except Exception as exc:
+            return False, f"недоступен: {type(exc).__name__}: {str(exc)[:160]}"
 
 
 ai_horde = AIHorde()
