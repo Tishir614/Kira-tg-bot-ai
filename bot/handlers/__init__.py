@@ -3,7 +3,7 @@ from aiogram import Router
 
 def get_include_routers() -> Router:
     """Assemble built-in routers plus optional plugins."""
-    from . import alcohol, callbacks, chat_updates, commands, community, community_life, errors, fsm, help_hub, mems, masturbate, memory_cmds, owner_stats, rp, suite
+    from . import alcohol, callbacks, chat_updates, commands, community, community_life, errors, fsm, fursona, help_hub, mems, masturbate, memory_cmds, owner_stats, rp, suite
     from bot.plugins import get_plugin_router
 
     router = Router(name="root")
@@ -16,6 +16,7 @@ def get_include_routers() -> Router:
     router.include_router(commands.router)
     router.include_router(callbacks.router)
     router.include_router(help_hub.router)
+    router.include_router(fursona.router)
     router.include_router(fsm.router)
     router.include_router(mems.router)
     router.include_router(masturbate.router)

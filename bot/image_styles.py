@@ -44,4 +44,29 @@ def extract_style(prompt: str) -> tuple[str, str | None]:
 
 def styles_help() -> str:
     return "🎨 <b>Стили</b>: " + ", ".join(f"<code>{n}</code>" for n in STYLES) + \
-        "\nПример: <code>/image лиса на крыше, стиль:киберпанк</code> или <code>стиль:рандом</code>"
+        "\nПример: <code>/image лиса на крыше, стиль:киберпанк</code> или <code>стиль:рандом</code>\n" + formats_help()
+
+
+# Aspect presets: key -> (width, height). Used by providers that accept explicit sizes.
+FORMATS = {
+    "portrait": (512, 768), "square": (512, 512), "wide": (768, 512),
+}
+_FORMAT_ALIASES = {
+    "портрет": "portrait", "вертикальный": "portrait", "вертикально": "portrait", "portrait": "portrait",
+    "квадрат": "square", "квадратный": "square", "square": "square",
+    "широкий": "wide", "пейзаж": "wide", "горизонтальный": "wide", "горизонтально": "wide", "wide": "wide",
+}
+_FORMAT_RE = re.compile(r"(?i)\b(?:формат|format|размер)\s*[:=]\s*([\w+\-]+)")
+
+
+def extract_format(prompt: str) -> tuple[str, str | None]:
+    """Strip `формат:портрет|квадрат|широкий` from the prompt; return (prompt, key or None)."""
+    match = _FORMAT_RE.search(prompt or "")
+    if not match:
+        return prompt, None
+    cleaned = (prompt[:match.start()] + prompt[match.end():]).strip(" ,")
+    return cleaned, _FORMAT_ALIASES.get(match.group(1).casefold())
+
+
+def formats_help() -> str:
+    return "Формат: <code>формат:портрет</code> (512×768), <code>формат:квадрат</code> (512×512), <code>формат:широкий</code> (768×512)"

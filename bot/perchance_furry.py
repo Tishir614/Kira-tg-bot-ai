@@ -65,7 +65,7 @@ class PerchanceFurry:
         self._user_key = key
         return key
 
-    async def generate(self, prompt: str, *, negative: str = "") -> tuple[bytes, str]:
+    async def generate(self, prompt: str, *, negative: str = "", size: tuple[int, int] | None = None) -> tuple[bytes, str]:
         session = await http_client.get()
         async with self._sem:
             try:
@@ -77,7 +77,7 @@ class PerchanceFurry:
                     "userKey": key,
                     "__cacheBust": random.random(),
                     "seed": "-1",
-                    "resolution": self.resolution,
+                    "resolution": f"{size[0]}x{size[1]}" if size else self.resolution,
                     "guidanceScale": str(self.guidance),
                     "channel": self.channel,
                     "subChannel": "public",

@@ -35,7 +35,7 @@ def test_translate_uses_ai_when_available():
 def test_explicit_image_prompt_goes_to_perchance_translated(monkeypatch):
     seen = {}
 
-    async def fake(prompt, negative=""):
+    async def fake(prompt, negative="", size=None):
         seen["p"] = prompt
         return b"img", "image/jpeg"
 
@@ -188,3 +188,27 @@ def test_furry_prompt_compose():
 def test_rp_director_inserts():
     assert "поворот" in rp_engine.twist_prompt() and "не делай ничего за персонажа" in rp_engine.NEXT_PROMPT
     assert rp_engine.twist_prompt().count("[Режиссёрская вставка]") == 1
+
+
+def test_image_format_option_and_size_passthrough(monkeypatch):
+    from bot.image_styles import extract_format, FORMATS
+    assert extract_format("лиса, формат:портрет") == ("лиса", "portrait")
+    assert extract_format("лиса формат:широкий")[1] == "wide" and extract_format("лиса")[1] is None
+    assert extract_format("лиса формат:abc")[1] is None
+    seen = {}
+
+    async def fake(prompt, negative="", size=None):
+        seen["size"] = size
+        return b"img", "image/jpeg"
+
+    monkeypatch.setattr(ig.perchance_furry, "generate", fake)
+    monkeypatch.setenv("IMAGE_PROVIDERS", "perchance")
+    monkeypatch.setattr("bot.ai_client.ai", type("A", (), {"enabled": False})())
+    asyncio.run(ImageGenerator().generate("лиса на пляже формат:широкий"))
+    assert seen["size"] == FORMATS["wide"] == (768, 512)
+
+
+def test_horde_uses_requested_size():
+    from bot import horde_client as hc
+    p = hc.build_payload("fox", "", ["Furry Epoch"], 768, 512, 28, 7)
+    assert (p["params"]["width"], p["params"]["height"]) == (768, 512)

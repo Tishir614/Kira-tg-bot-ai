@@ -14,7 +14,7 @@ from bot.http_client import http_client
 from bot import usage_stats
 from bot.furry_prompt import compose
 from bot.horde_client import HordeError, ai_horde
-from bot.image_styles import extract_style
+from bot.image_styles import FORMATS, extract_format, extract_style
 from bot.perchance_furry import PerchanceError, perchance_furry
 from bot.prompt_translate import is_minor_request, to_english_tags
 
@@ -120,6 +120,8 @@ class ImageGenerator:
         if is_minor_request(prompt):
             raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
         prompt, style_tags = extract_style(prompt)
+        prompt, format_key = extract_format(prompt)
+        size = FORMATS.get(format_key or "")
         if not prompt:
             raise ImageGenerationError("Пустой промпт.")
         from bot.ai_client import ai  # local import: ai_client does not depend on images
@@ -135,14 +137,14 @@ class ImageGenerator:
         errors: list[str] = []
         if "horde" in providers and ai_horde.enabled:
             try:
-                data, ctype = await ai_horde.generate(final_prompt, negative=negative)
+                data, ctype = await ai_horde.generate(final_prompt, negative=negative, size=size)
                 usage_stats.safe("count", "img:horde")
                 return GeneratedImage(data, ctype, "AI Horde (furry)")
             except HordeError as exc:
                 errors.append(str(exc))
         if "perchance" in providers and perchance_furry.enabled:
             try:
-                data, ctype = await perchance_furry.generate(final_prompt, negative=negative)
+                data, ctype = await perchance_furry.generate(final_prompt, negative=negative, size=size)
                 usage_stats.safe("count", "img:perchance")
                 return GeneratedImage(data, ctype, "Perchance furry-ai")
             except PerchanceError as exc:

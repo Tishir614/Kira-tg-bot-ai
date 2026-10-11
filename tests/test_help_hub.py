@@ -73,3 +73,40 @@ def test_callback_edits_message_in_place():
         call.data = "hub:garbage"
         await hub_callback(call)  # must not raise
     asyncio.run(scenario())
+
+
+def test_fursona_flow(tmp_path, monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from bot import sql
+    from bot.handlers import fursona as fz
+    from bot.sql.orm_tables import TableBase
+
+    async def scenario():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'f.db'}")
+        async with engine.begin() as conn:
+            await conn.run_sync(TableBase.metadata.create_all)
+        monkeypatch.setattr(sql, "session_factory", async_sessionmaker(engine, expire_on_commit=False))
+
+        def msg(text):
+            return SimpleNamespace(text=text, reply=AsyncMock(), from_user=SimpleNamespace(id=7),
+                                   chat=SimpleNamespace(id=7, type="private"))
+
+        m = msg("/fursona")
+        await fz.fursona_cmd(m)
+        assert "Твоя фурсона" in m.reply.await_args.args[0] and "/fursona рыжая" in m.reply.await_args.args[0]
+        m = msg("/fursona ребёнок лиса")
+        await fz.fursona_cmd(m)
+        assert "младше 18" in m.reply.await_args.args[0]
+        m = msg("/fursona рыжая лиса, зелёные глаза")
+        await fz.fursona_cmd(m)
+        assert "сохранена" in m.reply.await_args.args[0]
+        m = msg("/fursona")
+        await fz.fursona_cmd(m)
+        assert "зелёные глаза" in m.reply.await_args.args[0]
+        m = msg("/fursona clear")
+        await fz.fursona_cmd(m)
+        m = msg("/me_image у костра")
+        await fz.me_image_cmd(m)
+        assert "Сначала опиши" in m.reply.await_args.args[0]
+        await engine.dispose()
+    asyncio.run(scenario())

@@ -99,7 +99,7 @@ class AIHorde:
             except Exception as exc:
                 raise HordeError(f"AI Horde вернул не JSON: {text[:200]}") from exc
 
-    async def generate(self, prompt: str, *, negative: str = "") -> tuple[bytes, str]:
+    async def generate(self, prompt: str, *, negative: str = "", size: tuple[int, int] | None = None) -> tuple[bytes, str]:
         session = await http_client.get()
         try:
             available = await self._json(session, "GET", "/status/models", params={"type": "image"})
@@ -107,7 +107,7 @@ class AIHorde:
             if not models:
                 raise HordeError("Сейчас в AI Horde нет активных фурри-моделей.")
             sub = await self._json(session, "POST", "/generate/async",
-                                   json=build_payload(prompt, negative, models, self.width, self.height,
+                                   json=build_payload(prompt, negative, models, *(size or (self.width, self.height)),
                                                       self.steps, self.cfg))
             job = str(sub.get("id") or "") if isinstance(sub, dict) else ""
             if not job:
