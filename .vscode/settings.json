@@ -1,0 +1,27 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.languageServer": "Pylance",
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.autoSearchPaths": true,
+  "python.analysis.useLibraryCodeForTypes": true,
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}"
+  ],
+  "python.analysis.exclude": [
+    "**/.venv/**",
+    "**/__pycache__/**"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportAttributeAccessIssue": "none",
+    "reportMissingTypeStubs": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownLambdaType": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportOptionalSubscript": "none",
+    "reportOptionalCall": "none",
+    "reportGeneralTypeIssues": "warning"
+  }
+}
