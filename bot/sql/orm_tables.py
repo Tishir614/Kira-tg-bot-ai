@@ -335,6 +335,17 @@ class RPCharacter(TableBase):
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class ConversationSummary(TableBase):
+    __tablename__ = "conversation_summaries"
+    __table_args__ = (UniqueConstraint("user_id", "chat_id", name="uq_conv_summary_user_chat"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    chat_id: Mapped[int] = mapped_column(index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Blacklist(TableBase):
     __tablename__ = "blacklist"
     __table_args__ = (

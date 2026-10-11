@@ -28,6 +28,7 @@ from bot.community_systems import ROLE_RANK, resolve_group_role
 from bot.owners import is_owner
 from bot.ai_client import AIUnavailable, ai
 from bot.events import event_service
+from bot.web_context import build_context as build_web_context
 from bot.file_tools import FileAnalysisError, extract_text
 from bot.group_features import GroupActivityManager
 from bot.internet_tools import InternetDownloader, InternetSearch
@@ -812,6 +813,9 @@ async def ai_chat(message: Message):
         model_prompt = _contextual_prompt(message, prompt)
         confirmed, mature_enabled = await _mature_context(message)
         mature_active = bool(confirmed and mature_enabled)
+        web_block = "" if mature_active else await build_web_context(prompt)
+        if web_block:
+            model_prompt = f"{web_block}\n\n{model_prompt}"
         instructions = ai.MATURE_PROMPT if mature_active else ai.SYSTEM_PROMPT
         preferred = ("ollama",) if mature_active else None
         async with ChatActionSender.typing(chat_id=message.chat.id, bot=message.bot):

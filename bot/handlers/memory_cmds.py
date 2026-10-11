@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from bot import user_facts
 from bot.image_styles import styles_help
-from bot.sql import AssistantMemoryManager, UserFactManager
+from bot.sql import AssistantMemoryManager, ConversationSummaryManager, UserFactManager
 
 router = Router(name="memory_cmds")
 
@@ -48,6 +48,7 @@ async def forget_cmd(message: Message):
         return
     await UserFactManager.forget(message.from_user.id)
     await AssistantMemoryManager.clear(message.from_user.id, message.chat.id)
+    await ConversationSummaryManager.clear(message.from_user.id, message.chat.id)
     await message.reply("🧹 Забыла твои факты и историю нашего разговора здесь.")
 
 

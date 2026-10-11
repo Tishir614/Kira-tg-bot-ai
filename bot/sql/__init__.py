@@ -35,6 +35,7 @@ from bot.sql.orm_tables import (
     Relationship,
     AssistantMemory,
     UserFact,
+    ConversationSummary,
     ChatSettings,
     ChatMemorySettings,
     MatureProfile,
@@ -1418,7 +1419,8 @@ class ReminderManager:
 
 class AssistantMemoryManager:
     @staticmethod
-    async def add(user_id: int, chat_id: int, role: str, content: str, created_at: int) -> None:
+    async def add(user_id: int, chat_id: int, role: str, content: str, created_at: int) -> list[tuple[str, str]]:
+        """Store a turn; return the (role, content) pairs trimmed off the end of the window."""
         content = content[:12000]
         async with session_factory() as session:
             last = await session.scalar(
@@ -1428,7 +1430,7 @@ class AssistantMemoryManager:
                 .limit(1)
             )
             if last is not None and last.role == role[:16] and last.content == content:
-                return  # reconnect/retry paths must not store the same turn twice
+                return []  # reconnect/retry paths must not store the same turn twice
             session.add(AssistantMemory(
                 user_id=user_id,
                 chat_id=chat_id,
@@ -1438,15 +1440,16 @@ class AssistantMemoryManager:
             ))
             await session.commit()
             # Держим только последние 24 сообщения на пару user/chat.
-            ids = list((await session.scalars(
-                select(AssistantMemory.id)
+            old = list((await session.execute(
+                select(AssistantMemory.id, AssistantMemory.role, AssistantMemory.content)
                 .where(AssistantMemory.user_id == user_id, AssistantMemory.chat_id == chat_id)
                 .order_by(AssistantMemory.id.desc())
                 .offset(24)
             )).all())
-            if ids:
-                await session.execute(delete(AssistantMemory).where(AssistantMemory.id.in_(ids)))
+            if old:
+                await session.execute(delete(AssistantMemory).where(AssistantMemory.id.in_([r[0] for r in old])))
                 await session.commit()
+            return [(r[1], r[2]) for r in reversed(old)]
 
     @staticmethod
     async def context(user_id: int, chat_id: int, limit: int = 12) -> list[AssistantMemory]:
@@ -1467,6 +1470,34 @@ class AssistantMemoryManager:
                 AssistantMemory.user_id == user_id,
                 AssistantMemory.chat_id == chat_id,
             ))
+            await session.commit()
+
+
+class ConversationSummaryManager:
+    @staticmethod
+    async def get(user_id: int, chat_id: int) -> str:
+        async with session_factory() as session:
+            row = await session.scalar(select(ConversationSummary).where(
+                ConversationSummary.user_id == user_id, ConversationSummary.chat_id == chat_id))
+            return row.text if row else ""
+
+    @staticmethod
+    async def set(user_id: int, chat_id: int, text: str) -> None:
+        async with session_factory() as session:
+            row = await session.scalar(select(ConversationSummary).where(
+                ConversationSummary.user_id == user_id, ConversationSummary.chat_id == chat_id))
+            if row is None:
+                row = ConversationSummary(user_id=user_id, chat_id=chat_id)
+                session.add(row)
+            row.text = text[:3000]
+            row.updated_at = int(time.time())
+            await session.commit()
+
+    @staticmethod
+    async def clear(user_id: int, chat_id: int) -> None:
+        async with session_factory() as session:
+            await session.execute(delete(ConversationSummary).where(
+                ConversationSummary.user_id == user_id, ConversationSummary.chat_id == chat_id))
             await session.commit()
 
 
