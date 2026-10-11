@@ -19,7 +19,7 @@ _LABELS = {
     "name": "Имя", "age": "Возраст", "city": "Город", "job": "Работа",
     "likes": "Любит", "dislikes": "Не любит", "hobby": "Хобби", "note": "Заметка",
 }
-_SINGLE = {"name", "age", "city", "job"}  # a newer value replaces the older one
+_SINGLE = {"name", "age", "city", "job", "persona"}  # a newer value replaces the older one
 _INJECTION_RE = re.compile(r"(?i)(игнорируй|ignore|system|инструкц|prompt|промпт)")
 
 
@@ -36,6 +36,9 @@ def extract_facts(text: str) -> list[tuple[str, str]]:
 
 
 def render_facts(facts: list[tuple[str, str]]) -> str:
+    if not facts:
+        return ""
+    facts = [(k, v) for k, v in facts if k != "persona"]
     if not facts:
         return ""
     lines = [f"- {_LABELS.get(kind, kind)}: {value}" for kind, value in facts]

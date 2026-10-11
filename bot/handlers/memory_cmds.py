@@ -7,7 +7,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from bot import user_facts
+from bot import personas, user_facts
 from bot.image_styles import styles_help
 from bot.sql import AssistantMemoryManager, ConversationSummaryManager, UserFactManager
 
@@ -55,3 +55,27 @@ async def forget_cmd(message: Message):
 @router.message(Command("styles"))
 async def styles_cmd(message: Message):
     await message.reply(styles_help())
+
+
+@router.message(Command("persona"))
+@router.message(F.text.regexp(r"(?i)^персона(?:\s|$)"))
+async def persona_cmd(message: Message):
+    if not message.from_user:
+        return
+    raw = re.sub(r"(?i)^(?:/persona(?:@\w+)?|персона)\s*", "", message.text or "").strip().casefold()
+    uid = message.from_user.id
+    current = next((v for k, v in await UserFactManager.list(uid) if k == personas.KIND), "")
+    if raw in {"off", "выкл", "сброс", "обычная"}:
+        await UserFactManager.forget_kind(uid, personas.KIND)
+        await message.reply("🦊 Характер сброшен: Кира снова обычная.")
+        return
+    name = personas.resolve(raw)
+    if name:
+        await UserFactManager.remember(uid, [(personas.KIND, name)])
+        await message.reply(f"🦊 Теперь Кира — <b>{html.escape(name)}</b>. Сбросить: <code>/persona off</code>")
+        return
+    names = ", ".join(f"<code>{html.escape(n)}</code>" for n in personas.PERSONAS)
+    await message.reply(
+        f"🎭 <b>Характер Киры</b> (сейчас: {html.escape(current or 'обычный')})\n{names}\n"
+        "Выбрать: <code>/persona дерзкая</code>"
+    )

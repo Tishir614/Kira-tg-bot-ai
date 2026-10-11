@@ -1540,6 +1540,12 @@ class UserFactManager:
             return [(r.kind, r.value) for r in rows]
 
     @staticmethod
+    async def forget_kind(user_id: int, kind: str) -> None:
+        async with session_factory() as session:
+            await session.execute(delete(UserFact).where(UserFact.user_id == user_id, UserFact.kind == kind))
+            await session.commit()
+
+    @staticmethod
     async def forget(user_id: int) -> None:
         async with session_factory() as session:
             await session.execute(delete(UserFact).where(UserFact.user_id == user_id))

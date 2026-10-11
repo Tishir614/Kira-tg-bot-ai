@@ -149,3 +149,27 @@ def test_respond_lookups_run_concurrently(monkeypatch):
         await client.respond("привет", user_id=5, chat_id=1)
         assert _t.monotonic() - start < 0.35  # six lookups of 0.1 s would take 0.6 s sequentially
     asyncio.run(scenario())
+
+
+def test_personas():
+    from bot import personas
+    assert personas.resolve(" Дерзкая ") == "дерзкая" and personas.resolve("x") is None
+    assert "язвительная" in personas.prompt_for([("persona", "дерзкая")])
+    assert personas.prompt_for([("persona", "bogus")]) == ""
+    assert user_facts.render_facts([("persona", "дерзкая")]) == ""
+    assert user_facts.is_single("persona")
+
+
+def test_persona_applied_in_respond(monkeypatch):
+    async def scenario():
+        client = KiraAI()
+        monkeypatch.setattr(client, "_require_ai", lambda: None)
+        failover = AsyncMock(return_value="Ну привет, ответ")
+        monkeypatch.setattr(client, "_text_failover", failover)
+        monkeypatch.setattr(AssistantMemoryManager, "context", AsyncMock(return_value=[]))
+        monkeypatch.setattr(AssistantMemoryManager, "add", AsyncMock(return_value=[]))
+        monkeypatch.setattr(UserFactManager, "remember", AsyncMock())
+        monkeypatch.setattr(UserFactManager, "list", AsyncMock(return_value=[("persona", "цундере")]))
+        await client.respond("привет", user_id=9, chat_id=1)
+        assert "цундере" in failover.await_args.args[0][0]["content"]
+    asyncio.run(scenario())
