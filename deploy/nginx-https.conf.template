@@ -1,0 +1,70 @@
+# Generated from deploy/nginx-https.conf.template by https.sh (domain: __DOMAIN__). Do not edit the generated copy.
+# Only the Mini App / help / health endpoints are public. The admin panel (/ and the other /api/*) is NOT exposed.
+
+limit_req_zone $binary_remote_addr zone=kira_api:10m rate=10r/s;
+
+server {
+    listen 80;
+    server_name __DOMAIN__;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name __DOMAIN__;
+
+    ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    client_max_body_size 2m;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # Telegram Web embeds Mini Apps in a frame, so only Telegram origins may frame us.
+    add_header Content-Security-Policy "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org" always;
+
+    # Docker DNS; upstreams are resolved lazily so nginx starts even if a service (e.g. sketchforge) is down.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $kira_upstream http://kira:8080;
+    set $sketch_upstream http://sketchforge:3000;
+
+    location = / {
+        return 302 /kira;
+    }
+
+    location ~ ^/(kira|dnd|commands|help|health)$ {
+        proxy_pass $kira_upstream;
+        include /etc/nginx/kira_proxy_headers.conf;
+    }
+
+    location ~ ^/api/(kira|dnd)/ {
+        limit_req zone=kira_api burst=30 nodelay;
+        proxy_pass $kira_upstream;
+        include /etc/nginx/kira_proxy_headers.conf;
+    }
+
+    location /sketchforge/ {
+        rewrite ^/sketchforge/(.*)$ /$1 break;
+        proxy_pass $sketch_upstream;
+        include /etc/nginx/kira_proxy_headers.conf;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+    }
+
+    # Everything else (admin panel, /api/users, /api/logs, ...) stays private.
+    location / {
+        return 404;
+    }
+}

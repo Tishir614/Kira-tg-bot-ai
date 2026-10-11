@@ -54,3 +54,24 @@ Perchance; локальный ComfyUI (≈4.3 ГБ) добавляется то�
 - Картинки: по умолчанию `IMAGE_PROVIDERS=horde,perchance,comfyui`. Свой ключ AI Horde — `HORDE_API_KEY`.
 - Слабый сервер: `KIRA_LIGHT_MODE=auto`; лимиты зависаний — `AI_TOTAL_TIMEOUT`, `AI_MAX_QUEUE` и др.
 - Проверка: `docker compose ps`, `docker compose logs -f kira`, в Telegram `/status`, `/ai_health`, `/stats`.
+
+## HTTPS для Mini App и справки (отдельный шаг)
+Нужен домен с A-записью на IP сервера и свободные порты 80/443.
+```bash
+bash https.sh kira.example.com you@mail.com --dry-run   # только создать файлы и посмотреть
+bash https.sh kira.example.com you@mail.com             # выпустить сертификат Let's Encrypt и включить HTTPS
+bash https.sh --remove                                   # выключить (сертификаты сохраняются)
+```
+- **Токен, `.env` и память бота не затрагиваются**: скрипт не читает и не пишет `.env`, не трогает тома данных
+  и не использует `down -v`. Пересоздаются только контейнеры `nginx` и `kira` (тома остаются, память цела).
+- Все настройки HTTPS лежат в `compose.override.yml` и `deploy/nginx.generated.conf` (в `.gitignore`).
+  `docker compose` подхватывает override сам, поэтому `deploy.sh` и `install.sh` работают как раньше.
+- Публично открыты только `/kira`, `/dnd`, `/commands`, `/help`, `/health`, `/api/kira/*`, `/api/dnd/*`.
+  Админ-панель (`/`, `/api/users`, `/api/logs` …) наружу не отдаётся.
+- В Mini App нужен `WEB_PANEL_ENABLED=1` в вашем `.env` (скрипт только предупредит, если его нет).
+- Продление сертификата: cron `/etc/cron.d/kira-certbot` (два раза в сутки), скрипт сам делает тестовый прогон.
+
+## OmniGet (необязательный)
+Образ больше не зависит от архива OmniGet на GitHub: по умолчанию он не ставится. Включить:
+`INSTALL_OMNIGET=1 docker compose build kira` (или `OMNIGET_URL=<ссылка на архив>`). Если архива нет —
+сборка продолжится с предупреждением, а `/omniget` сообщит, что CLI не установлен.
