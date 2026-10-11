@@ -464,3 +464,9 @@ Local services can be started with Docker Compose profiles `ollama`, `image`, an
 - `/kira` opens the standalone Kira Mini App with built-in AI chat.
 - `/dnd` opens a separate D&D Mini App. D&D UI failures are isolated from Kira.
 - Upgrade with `./upgrade_1_6.sh`; it does not remove Docker volumes.
+
+## Что нового в 2.5–2.7
+- `/rp` — умный RP-модуль (сцены, карточки персонажей, библиотека, кубики, память, retry/undo, экспорт).
+- Генерация изображений: AI Horde → Perchance furry-ai → ComfyUI (`IMAGE_PROVIDERS`), русские промпты, стили (`стиль:аниме`), кнопки «Ещё вариант» / «Другой стиль».
+- Память: факты о пользователе (`/memory`, `/forget`), долговременная сводка разговора, автопоиск в интернете для вопросов про свежее.
+- Подробности — в `RELEASE_2.5.0.md`, `RELEASE_2.6.0.md`, `RELEASE_2.7.0.md`.
