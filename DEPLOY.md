@@ -37,6 +37,7 @@ git clone https://github.com/Tishir614/Kira-tg-bot-ai.git && cd Kira-tg-bot-ai &
 # или без вопросов:
 TOKEN=123456:ABC... OWNER_ID=12345678 bash install.sh
 ```
+`bash install.sh --plan` показывает план (железо сервера, что и сколько будет скачано) и ничего не устанавливает.
 `install.sh` сам ставит git/curl/Docker, берёт код, создаёт `.env` (если его нет — спросит только TOKEN и OWNER_ID),
 поднимает Redis, Ollama с локальными моделями, голос Piper и бота. Картинки в этом режиме идут через AI Horde /
 Perchance; локальный ComfyUI (≈4.3 ГБ) добавляется только с `KIRA_LOCAL_IMAGE=1 bash install.sh`.

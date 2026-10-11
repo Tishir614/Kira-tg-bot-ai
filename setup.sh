@@ -5,11 +5,16 @@ umask 077
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-log()  { printf "%b[Kira]%b %s\n" "$CYAN" "$NC" "$*"; }
-ok()   { printf "%b[OK]%b %s\n" "$GREEN" "$NC" "$*"; }
-warn() { printf "%b[!]%b %s\n" "$YELLOW" "$NC" "$*"; }
-die()  { printf "%b[ERROR]%b %s\n" "$RED" "$NC" "$*" >&2; exit 1; }
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  RED=$'\033[1;31m'; GREEN=$'\033[1;32m'; YELLOW=$'\033[1;33m'; CYAN=$'\033[1;36m'; MAGENTA=$'\033[1;35m'; DIM=$'\033[2m'; NC=$'\033[0m'
+else
+  RED=''; GREEN=''; YELLOW=''; CYAN=''; MAGENTA=''; DIM=''; NC=''
+fi
+log()  { printf "%s🦊 %s%s\n" "$CYAN" "$NC" "$*"; }
+ok()   { printf "%s✔ %s%s\n" "$GREEN" "$NC" "$*"; }
+warn() { printf "%s⚠ %s%s\n" "$YELLOW" "$NC" "$*"; }
+die()  { printf "%s✖ %s%s\n" "$RED" "$NC" "$*" >&2; exit 1; }
+step() { printf "\n%s━━ %s ━━%s\n" "$MAGENTA" "$*" "$NC"; }
 ENV_TMP=""
 cleanup() {
   if [[ -n "${ENV_TMP:-}" && -f "$ENV_TMP" ]]; then
@@ -145,6 +150,12 @@ if [[ "${KIRA_KEEP_ENV:-0}" == "1" && -f .env ]]; then
   OLLAMA_BASE_URL="$(env_get OLLAMA_BASE_URL)"
   OLLAMA_MODELS="$(env_get OLLAMA_MODELS)"
   [[ -n "$OLLAMA_MODELS" ]] || OLLAMA_MODELS="$(env_get OLLAMA_MODEL)"
+  # Download every model the .env refers to (default chain, fast, smart), once each.
+  _models=""
+  for _m in ${OLLAMA_MODELS//,/ } "$(env_get OLLAMA_MODEL)" "$(env_get OLLAMA_FAST_MODEL)" "$(env_get OLLAMA_SMART_MODEL)"; do
+    [[ -n "$_m" && ",$_models," != *",$_m,"* ]] && _models="${_models:+$_models,}$_m"
+  done
+  OLLAMA_MODELS="$_models"
   USE_OLLAMA=0
   if [[ "$OLLAMA_BASE_URL" == *"ollama:11434"* ]]; then USE_OLLAMA=1; fi   # Ollama внутри compose
   USE_LOCAL_IMAGE=0
@@ -386,6 +397,7 @@ ok ".env создан и TOKEN сохранён. Права файла: 600 (т�
 
 fi
 
+step "Скачиваю образы Docker"
 log "Проверяю Docker-образы..."
 # Use supported generic Redis 8 Alpine tag. redis:8.1-alpine no longer exists.
 "${DOCKER[@]}" pull redis:8-alpine
@@ -399,6 +411,7 @@ if [[ "$USE_OLLAMA" -eq 1 ]]; then
   fi
 fi
 
+step "Собираю и запускаю сервисы"
 log "Собираю и запускаю сервисы..."
 PROFILE_ARGS=(--profile voice)
 if [[ "$USE_OLLAMA" -eq 1 ]]; then
@@ -411,6 +424,7 @@ fi
 "${DC[@]}" "${PROFILE_ARGS[@]}" up -d --build
 
 if [[ "$USE_OLLAMA" -eq 1 ]]; then
+  step "Скачиваю модели ИИ"
   log "Скачиваю локальные модели на диск: $OLLAMA_MODELS (в RAM они будут запускаться строго по очереди)"
   ADULT_MODEL="$(env_get OLLAMA_ADULT_MODEL)"   # отдельная модель для 18+/RP, если задана в .env
   if [[ -n "$ADULT_MODEL" ]]; then OLLAMA_MODELS="$OLLAMA_MODELS,$ADULT_MODEL"; fi
@@ -431,6 +445,7 @@ if [[ "$USE_OLLAMA" -eq 1 ]]; then
   fi
 fi
 
+step "Голос и распознавание речи"
 log "Готовлю локальные голоса Piper (~120 МБ суммарно, скачиваются один раз)..."
 if "${DC[@]}" exec -T kira uv run --no-dev python -m piper.download_voices \
     --data-dir /app/static/piper ru_RU-irina-medium en_US-lessac-medium >/dev/null 2>&1 \

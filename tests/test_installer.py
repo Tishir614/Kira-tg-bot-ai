@@ -44,7 +44,8 @@ def test_keep_env_mode_does_not_modify_env(tmp_path):
     shutil.copy(ROOT / "example.env", proj / "example.env")
     env_text = (
         "TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789\nOWNER_ID=42\n"
-        "OLLAMA_BASE_URL=http://ollama:11434\nOLLAMA_MODELS=qwen3:1.7b\nIMAGE_PROVIDERS=comfyui\n"
+        "OLLAMA_BASE_URL=http://ollama:11434\nOLLAMA_MODELS=qwen3:1.7b\nOLLAMA_FAST_MODEL=fast:2b\n"
+        "OLLAMA_SMART_MODEL=smart:4b\nOLLAMA_ADULT_MODEL=adult:1b\nIMAGE_PROVIDERS=comfyui\n"
     )
     (proj / ".env").write_text(env_text)
     os.chmod(proj / ".env", 0o640)  # deliberately not 600: must stay exactly as it is
@@ -69,6 +70,8 @@ def test_keep_env_mode_does_not_modify_env(tmp_path):
     calls = log.read_text()
     assert "up -d --build" in calls and "--profile ollama" in calls and "--profile image" not in calls
     assert "pull ollama" in calls or "ollama pull" in calls
+    for model in ("qwen3:1.7b", "fast:2b", "smart:4b", "adult:1b"):   # everything the .env refers to is downloaded
+        assert f"ollama pull {model}" in calls, model
 
 
 def _run_omniget(tmp_path, curl_body, env_extra=None):
@@ -123,3 +126,30 @@ def test_dockerfile_has_no_hard_omniget_dependency():
     assert "releases/download" not in docker and "curl -fL" not in docker
     compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
     assert "INSTALL_OMNIGET: ${INSTALL_OMNIGET:-0}" in compose
+
+
+def test_install_plan_mode_is_side_effect_free_and_informative(tmp_path):
+    import os
+
+    env = {**os.environ, "NO_COLOR": "1", "HOME": str(tmp_path)}
+    r = subprocess.run(["bash", str(ROOT / "install.sh"), "--plan"], cwd=tmp_path, env=env,
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "K I R A B O T" in out and "План установки" in out and "Итого свободного места" in out
+    for item in ("Docker + Compose", "Qwen3.5 2B", "Piper", "ComfyUI", "OLLAMA_ADULT_MODEL"):
+        assert item in out or "Картинки" in out, item
+    assert "ничего не устанавливалось" in out
+    assert list(tmp_path.iterdir()) == []  # no clone, no files
+
+
+def test_install_spinner_reports_success_and_failure():
+    script = (ROOT / "install.sh").read_text(encoding="utf-8")
+    start = script.index("spin() {")
+    end = script.index("\n}\n", start) + 3
+    helpers = "R=;G=;Y=;C=;N=;\nok() { echo OK: $*; }\n" + script[start:end]
+    good = subprocess.run(["bash", "-c", helpers + 'spin "работа" true; echo rc=$?'], capture_output=True, text=True, timeout=10)
+    assert "OK: работа" in good.stdout and "rc=0" in good.stdout
+    bad = subprocess.run(["bash", "-c", helpers + 'spin "падение" bash -c "echo boom >&2; exit 3"; echo rc=$?'],
+                         capture_output=True, text=True, timeout=10)
+    assert "rc=1" in bad.stdout and "boom" in bad.stderr and "ошибка" in bad.stderr
