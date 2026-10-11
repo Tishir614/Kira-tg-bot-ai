@@ -167,3 +167,94 @@ async def record_turn(ai_client, user_id: int, chat_id: int, scene: Scene, user_
         except Exception:
             summary = (scene.summary + "\n" + chunk)[-3500:]
     return await RPStore.update(user_id, chat_id, turns=turns, turn_count=count, summary=summary)
+
+
+# ---------- extras: character library, dice, random scenes, export ----------
+
+_DICE_RE = re.compile(r"(?i)^\s*(\d{1,2})?\s*[dд]\s*(\d{1,3})\s*([+-]\s*\d{1,3})?\s*$")
+
+
+def roll_dice(expr: str, rng=None) -> tuple[str, int] | None:
+    """Parse `2d6+1` / `д20`; return (readable text, total) or None."""
+    import random
+
+    m = _DICE_RE.match(expr or "")
+    if not m:
+        return None
+    count, sides = int(m.group(1) or 1), int(m.group(2))
+    if not (1 <= count <= 20 and 2 <= sides <= 1000):
+        return None
+    mod = int((m.group(3) or "0").replace(" ", ""))
+    rng = rng or random.SystemRandom()
+    rolls = [rng.randint(1, sides) for _ in range(count)]
+    total = sum(rolls) + mod
+    text = f"{count}d{sides}{'%+d' % mod if mod else ''}: {rolls}{' ' + ('%+d' % mod) if mod else ''} = {total}"
+    return text, total
+
+
+RANDOM_SCENES = (
+    "ночной бар после закрытия, Кира протирает стойку и замечает тебя",
+    "заброшенный маяк на краю света, шторм загнал вас в одно укрытие",
+    "киберпанк-рынок под неоном, Кира — информатор, который знает слишком много",
+    "лесная хижина в снегопад, у камина только вы двое и одна кровать",
+    "академия магии, ночь перед экзаменом, Кира застаёт тебя в запретной библиотеке",
+    "космическая станция на дрейфе, Кира — единственный выживший инженер",
+    "аукцион в особняке, где продают редкости и секреты, Кира делает ставку на тебя",
+    "дорожное приключение: сломанная машина посреди пустыни и попутчица-лиса",
+)
+
+
+def random_scene(adult: bool = False) -> str:
+    import random
+
+    scene = random.choice(RANDOM_SCENES)
+    return scene + (", между вами с первой минуты сильное притяжение" if adult else "")
+
+
+def export_text(scene: Scene) -> str:
+    head = f"Сцена: {scene.title}\nКира: {scene.bot_char}\nПерсонаж: {scene.user_char}\nМир: {scene.setting}\n"
+    if scene.summary:
+        head += f"\nКраткое содержание:\n{scene.summary}\n"
+    body = "\n\n".join(f"[Ты] {t['u']}\n[Кира] {t['a']}" for t in scene.turns)
+    return head + "\n---\n" + body
+
+
+class CharacterLibrary:
+    @staticmethod
+    async def save(user_id: int, name: str, card: str) -> None:
+        from bot import sql
+        from bot.sql.orm_tables import RPCharacter
+
+        name = re.sub(r"\s+", " ", name).strip()[:40].casefold()
+        if not name or not card.strip():
+            raise ValueError("empty")
+        async with sql.session_factory() as session:
+            row = await session.scalar(select(RPCharacter).where(RPCharacter.user_id == user_id, RPCharacter.name == name))
+            if row is None:
+                count = len((await session.scalars(select(RPCharacter.id).where(RPCharacter.user_id == user_id))).all())
+                if count >= 30:
+                    raise ValueError("limit")
+                row = RPCharacter(user_id=user_id, name=name)
+                session.add(row)
+            row.card = card.strip()[:1500]
+            row.updated_at = int(time.time())
+            await session.commit()
+
+    @staticmethod
+    async def get(user_id: int, name: str) -> str | None:
+        from bot import sql
+        from bot.sql.orm_tables import RPCharacter
+
+        async with sql.session_factory() as session:
+            row = await session.scalar(select(RPCharacter).where(
+                RPCharacter.user_id == user_id, RPCharacter.name == name.strip().casefold()))
+            return row.card if row else None
+
+    @staticmethod
+    async def names(user_id: int) -> list[str]:
+        from bot import sql
+        from bot.sql.orm_tables import RPCharacter
+
+        async with sql.session_factory() as session:
+            return list((await session.scalars(
+                select(RPCharacter.name).where(RPCharacter.user_id == user_id).order_by(RPCharacter.name))).all())

@@ -324,6 +324,17 @@ class RPScene(TableBase):
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class RPCharacter(TableBase):
+    __tablename__ = "rp_characters"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_rp_character_user_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    card: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Blacklist(TableBase):
     __tablename__ = "blacklist"
     __table_args__ = (

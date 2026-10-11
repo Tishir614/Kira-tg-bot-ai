@@ -17,7 +17,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 _LABELS = {
     "name": "Имя", "age": "Возраст", "city": "Город", "job": "Работа",
-    "likes": "Любит", "dislikes": "Не любит", "hobby": "Хобби",
+    "likes": "Любит", "dislikes": "Не любит", "hobby": "Хобби", "note": "Заметка",
 }
 _SINGLE = {"name", "age", "city", "job"}  # a newer value replaces the older one
 _INJECTION_RE = re.compile(r"(?i)(игнорируй|ignore|system|инструкц|prompt|промпт)")

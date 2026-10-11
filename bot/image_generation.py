@@ -12,6 +12,7 @@ import aiohttp
 
 from bot.http_client import http_client
 from bot.horde_client import HordeError, ai_horde
+from bot.image_styles import extract_style
 from bot.perchance_furry import PerchanceError, perchance_furry
 from bot.prompt_translate import is_minor_request, to_english_tags
 
@@ -116,6 +117,9 @@ class ImageGenerator:
             raise ImageGenerationError("Пустой промпт.")
         if is_minor_request(prompt):
             raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
+        prompt, style_tags = extract_style(prompt)
+        if not prompt:
+            raise ImageGenerationError("Пустой промпт.")
         from bot.ai_client import ai  # local import: ai_client does not depend on images
 
         english = await to_english_tags(prompt, ai)
@@ -123,6 +127,8 @@ class ImageGenerator:
             raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
         pieces = [KIRA_VISUAL] if kira else ["adult anthropomorphic furry"]
         pieces.append(english[:1800])
+        if style_tags:
+            pieces.append(style_tags)
         pieces.append("high quality, detailed, coherent anatomy, detailed face and paws")
         final_prompt = ", ".join(pieces)
         negative = "bad anatomy, extra limbs, extra tails, duplicate face, fused body, deformed paws, blurry, low quality, watermark, text, child, young"

@@ -98,6 +98,8 @@ RUSSIAN_COMMAND_ALIASES: dict[str, str] = {
     "role": "роль",
     "roll": "кубик",
     "rp": "рп",
+    "styles": "стили",
+    "forget": "забыть",
     "rp18": "рп18",
     "rp18_actions": "рп18_действия",
     "rules": "правила",

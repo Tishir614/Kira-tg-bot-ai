@@ -5,12 +5,12 @@ import re
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from bot import log
 from bot.ai_client import AIUnavailable, ai
-from bot.rp_engine import RPStore, Scene, build_director_prompt, compose_user_prompt, parse_card, record_turn
+from bot.rp_engine import CharacterLibrary, RPStore, export_text, random_scene, roll_dice, Scene, build_director_prompt, compose_user_prompt, parse_card, record_turn
 from bot.runtime import metrics
 from bot.sql import ChatSettingsManager, MatureManager, UserManager
 
@@ -23,6 +23,9 @@ HELP = (
     "• <code>/rp me Имя | описание</code> — твой персонаж\n"
     "• <code>/rp world &lt;мир/жанр&gt;</code> — сеттинг (фэнтези, киберпанк, школа магии…)\n"
     "• <code>/rp retry</code> — переписать последний ответ · <code>/rp undo</code> — откатить ход\n"
+    "• <code>/rp save Имя</code> / <code>load Имя</code> / <code>list</code> — библиотека персонажей Киры\n"
+    "• <code>/rp roll 2d6+1</code> — бросок кубиков (результат влияет на сюжет) · <code>/rp random</code> — случайная сцена\n"
+    "• <code>/rp export</code> — скачать сцену файлом\n"
     "• <code>/rp recap</code> — краткое содержание · <code>/rp status</code>\n"
     "• <code>/rp pause</code> / <code>resume</code> / <code>stop</code>\n"
     "Вне роли пиши в двойных скобках: <code>(( ... ))</code>.\n"
@@ -135,6 +138,44 @@ async def rp_command(message: Message):
         last = scene.turns[-1]["u"]
         scene = await RPStore.update(uid, cid, turns=scene.turns[:-1], turn_count=max(0, scene.turn_count - 1))
         await _play(message, scene, last, retry=True)
+    elif cmd in {"save", "сохранить"}:
+        if not rest or not scene.bot_char:
+            await message.reply("Сначала задай карточку: <code>/rp char Имя | описание</code>, затем <code>/rp save имя</code>.")
+            return
+        try:
+            await CharacterLibrary.save(uid, rest, scene.bot_char)
+            await message.reply(f"💾 Персонаж «{html.escape(rest[:40])}» сохранён.")
+        except ValueError:
+            await message.reply("Лимит библиотеки — 30 персонажей.")
+    elif cmd in {"load", "загрузить"}:
+        card = await CharacterLibrary.get(uid, rest)
+        if card is None:
+            await message.reply("Такого персонажа нет. <code>/rp list</code>")
+            return
+        await RPStore.update(uid, cid, bot_char=card)
+        await message.reply(f"🦊 Загружен: {html.escape(card[:300])}")
+    elif cmd in {"list", "список"}:
+        names = await CharacterLibrary.names(uid)
+        await message.reply("📚 Твои персонажи: " + (", ".join(f"<code>{html.escape(n)}</code>" for n in names) or "пока пусто"))
+    elif cmd in {"roll", "кубик", "бросок"}:
+        result = roll_dice(rest or "d20")
+        if result is None:
+            await message.reply("Формат: <code>/rp roll 2d6+1</code> (до 20 кубиков, до d1000).")
+            return
+        text, total = result
+        await message.reply(f"🎲 {html.escape(text)}")
+        if scene.active and not scene.paused:
+            await _play(message, scene, f"[Бросок кубиков: {text}. Оцени успех относительно максимума броска (низкий — провал, высокий — удача) и вплети результат в сюжет.]")
+    elif cmd in {"random", "рандом"}:
+        adult = await _adult(message)
+        scene = await RPStore.start(uid, cid, random_scene(adult))
+        await message.reply(f"🎭 Случайная сцена: {html.escape(scene.title)}")
+        await _play(message, scene, f"[Начало сцены] {scene.title}\nНачни сцену: опиши место и первый ход Киры.")
+    elif cmd in {"export", "экспорт"}:
+        if not scene.turns:
+            await message.reply("Пока нечего экспортировать.")
+            return
+        await message.reply_document(BufferedInputFile(export_text(scene).encode("utf-8"), filename="rp-scene.txt"))
     elif cmd in {"recap", "итог"}:
         text = scene.summary or "\n".join(f"• {t['u'][:120]}" for t in scene.turns[-5:]) or "Пока ничего не произошло."
         await message.reply(f"📜 <b>Ранее в сцене:</b>\n{html.escape(text[-3500:])}")

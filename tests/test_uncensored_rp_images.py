@@ -123,3 +123,39 @@ def test_horde_full_flow(monkeypatch):
     monkeypatch.setattr(hc.http_client, "get", fake_get)
     data, ctype = asyncio.run(hc.AIHorde().generate("anthro fox"))
     assert data == b"IMG" and ctype == "image/webp"
+
+
+def test_dice_and_scenes():
+    import random
+    assert rp_engine.roll_dice("2d6+1", random.Random(1))[1] >= 3
+    assert rp_engine.roll_dice("д20") is not None
+    assert rp_engine.roll_dice("99d6") is None and rp_engine.roll_dice("abc") is None
+    assert "притяжение" in rp_engine.random_scene(True)
+    assert "Сцена: s" in rp_engine.export_text(rp_engine.Scene(title="s", turns=[{"u": "a", "a": "b"}]))
+
+
+def test_image_styles():
+    from bot.image_styles import extract_style
+    p, tags = extract_style("лиса на крыше, стиль:киберпанк")
+    assert p == "лиса на крыше" and "neon" in tags
+    assert extract_style("лиса")[1] is None
+    assert extract_style("лиса стиль:рандом")[1]
+
+
+def test_character_library(tmp_path, monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from bot import sql
+    from bot.sql.orm_tables import TableBase
+
+    async def scenario():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'c.db'}")
+        async with engine.begin() as conn:
+            await conn.run_sync(TableBase.metadata.create_all)
+        monkeypatch.setattr(sql, "session_factory", async_sessionmaker(engine, expire_on_commit=False))
+        lib = rp_engine.CharacterLibrary
+        await lib.save(1, "Рэй", "Рэй — волк")
+        await lib.save(1, "рэй", "Рэй — чёрный волк")
+        assert await lib.get(1, "РЭЙ") == "Рэй — чёрный волк" and await lib.names(1) == ["рэй"]
+        assert await lib.get(2, "рэй") is None
+        await engine.dispose()
+    asyncio.run(scenario())
