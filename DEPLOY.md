@@ -31,9 +31,17 @@ cd Kira-tg-bot-ai && bash deploy.sh
 HTTPS с personal access token. Том `kira-persistent-data` подхватится автоматически, если не менять
 имя проекта compose.
 
-## Первая установка с нуля
-`bash setup.sh` — интерактивный мастер (спросит TOKEN, сам поставит Docker). Повторный запуск `setup.sh`
-тоже делает копию `.env` и предлагает оставить существующий TOKEN.
+## Первая установка с нуля — одной командой
+```bash
+git clone https://github.com/Tishir614/Kira-tg-bot-ai.git && cd Kira-tg-bot-ai && bash install.sh
+# или без вопросов:
+TOKEN=123456:ABC... OWNER_ID=12345678 bash install.sh
+```
+`install.sh` сам ставит git/curl/Docker, берёт код, создаёт `.env` (если его нет — спросит только TOKEN и OWNER_ID),
+поднимает Redis, Ollama с локальными моделями, голос Piper и бота. Картинки в этом режиме идут через AI Horde /
+Perchance; локальный ComfyUI (≈4.3 ГБ) добавляется только с `KIRA_LOCAL_IMAGE=1 bash install.sh`.
+Повторный запуск безопасен: `.env` и данные сохраняются (копия `.env.backup-*`), код обновляется.
+Интерактивный мастер с вопросами по-прежнему доступен: `bash setup.sh`.
 
 ## Установка из zip-архива вместо git
 `bash upgrade.sh release.zip` (`tools/safe_upgrade.py`): `.env`, `static/`, `.git` защищены от замены.

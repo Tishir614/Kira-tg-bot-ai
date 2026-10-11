@@ -111,6 +111,11 @@ ask_optional() {
 
 yesno() {
   local prompt="$1" default="${2:-N}" ans=""
+  # KIRA_AUTO=1 (set by install.sh): never ask, take the default answer.
+  if [[ "${KIRA_AUTO:-0}" == "1" ]]; then
+    [[ "$default" =~ ^[Yy]$ ]]
+    return
+  fi
   local suffix="[y/N]"
   [[ "$default" =~ ^[Yy]$ ]] && suffix="[Y/n]"
   read -r -p "$prompt $suffix: " ans < /dev/tty
@@ -203,7 +208,10 @@ ok "AI будет работать только локально через Olla
 log "Цепочка: qwen3.5:2b-q4_K_M → qwen3:1.7b. Вторая модель запускается только если первая не справилась."
 
 USE_LOCAL_IMAGE=0
-if yesno "Включить локальную генерацию изображений? Без API-ключей, модель ~4.3 ГБ; на CPU генерация может занять минуты" Y; then
+# In auto mode the free online generators (AI Horde/Perchance) are used; the 4.3 GB local
+# ComfyUI model is installed only on request: KIRA_LOCAL_IMAGE=1.
+if { [[ "${KIRA_AUTO:-0}" == "1" ]] && [[ "${KIRA_LOCAL_IMAGE:-0}" == "1" ]]; } || \
+   { [[ "${KIRA_AUTO:-0}" != "1" ]] && yesno "Включить локальную генерацию изображений? Без API-ключей, модель ~4.3 ГБ; на CPU генерация может занять минуты" Y; }; then
   FREE_KB="$(df -Pk . 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)"
   FREE_GB=$(( FREE_KB / 1024 / 1024 ))
   if (( FREE_GB < 8 )); then
@@ -350,6 +358,15 @@ chmod 600 "$ENV_TMP"
 mv -f "$ENV_TMP" .env
 ENV_TMP=""
 chmod 600 .env
+# Add newer defaults (image providers, AI Horde, anti-hang limits...) without touching existing lines.
+if [[ -f example.env ]]; then
+  ENV_TMP=".env.tmp.$$"
+  cp example.env "$ENV_TMP"
+  python3 tools/merge_env.py .env "$ENV_TMP"
+  chmod 600 "$ENV_TMP"
+  mv -f "$ENV_TMP" .env
+  ENV_TMP=""
+fi
 ok ".env создан и TOKEN сохранён. Права файла: 600 (только владелец)."
 
 log "Проверяю Docker-образы..."

@@ -14,7 +14,7 @@ from bot.http_client import http_client
 from bot import usage_stats
 from bot.furry_prompt import compose
 from bot.horde_client import HordeError, ai_horde
-from bot.image_styles import FORMATS, extract_format, extract_style
+from bot.image_styles import FORMATS, extract_count, extract_format, extract_style
 from bot.perchance_furry import PerchanceError, perchance_furry
 from bot.prompt_translate import is_minor_request, to_english_tags
 
@@ -119,6 +119,7 @@ class ImageGenerator:
             raise ImageGenerationError("Пустой промпт.")
         if is_minor_request(prompt):
             raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
+        prompt, _ = extract_count(prompt)  # variants are handled by the caller
         prompt, style_tags = extract_style(prompt)
         prompt, format_key = extract_format(prompt)
         size = FORMATS.get(format_key or "")

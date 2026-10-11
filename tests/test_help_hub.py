@@ -110,3 +110,43 @@ def test_fursona_flow(tmp_path, monkeypatch):
         assert "Сначала опиши" in m.reply.await_args.args[0]
         await engine.dispose()
     asyncio.run(scenario())
+
+
+def test_image_count_option():
+    from bot.image_styles import extract_count
+    assert extract_count("лиса, количество:3") == ("лиса", 3)
+    assert extract_count("лиса n=99")[1] == 4  # clamped to IMAGE_MAX_VARIANTS
+    assert extract_count("лиса") == ("лиса", 1) and extract_count("лиса count:0")[1] == 1
+
+
+def test_variants_album(monkeypatch):
+    from bot.handlers import suite
+    from bot.image_generation import GeneratedImage, ExplicitImagePrompt
+
+    async def scenario():
+        calls = []
+
+        async def gen(prompt, kira=False, mature=False):
+            calls.append(prompt)
+            if len(calls) == 2:
+                raise RuntimeError("one failed")
+            return GeneratedImage(b"IMG", "image/jpeg", "AI Horde (furry)")
+
+        monkeypatch.setattr(suite.image_generator, "generate", gen)
+        waiting = SimpleNamespace(edit_text=AsyncMock(), delete=AsyncMock())
+        msg = SimpleNamespace(reply=AsyncMock(return_value=waiting), reply_media_group=AsyncMock(), reply_photo=AsyncMock(),
+                              answer=AsyncMock(), from_user=SimpleNamespace(id=5))
+        await suite._image_variants_impl(msg, "лиса количество:3", "лиса", 3, kira=False)
+        assert len(calls) == 3 and all(c == "лиса" for c in calls)
+        media = msg.reply_media_group.await_args.args[0]
+        assert len(media) == 2 and "2 из 3" in media[0].caption and media[1].caption is None
+        assert msg.answer.await_args.kwargs["reply_markup"].inline_keyboard
+
+        async def blocked(prompt, kira=False, mature=False):
+            raise ExplicitImagePrompt("нельзя")
+        monkeypatch.setattr(suite.image_generator, "generate", blocked)
+        waiting2 = SimpleNamespace(edit_text=AsyncMock(), delete=AsyncMock())
+        msg2 = SimpleNamespace(reply=AsyncMock(return_value=waiting2), from_user=SimpleNamespace(id=5))
+        await suite._image_variants_impl(msg2, "x", "x", 2, kira=False)
+        assert "нельзя" in waiting2.edit_text.await_args.args[0]
+    asyncio.run(scenario())

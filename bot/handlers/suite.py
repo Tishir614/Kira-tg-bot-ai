@@ -29,6 +29,7 @@ from bot.owners import is_owner
 from bot.ai_client import AIUnavailable, ai
 from bot.events import event_service
 from bot import image_buttons
+from bot.image_styles import extract_count
 from bot.web_context import build_context as build_web_context
 from bot.file_tools import FileAnalysisError, extract_text
 from bot.group_features import GroupActivityManager
@@ -638,6 +639,60 @@ async def roleplay_action_handler(message: Message):
 
 # ---------- Image generation / Kira reference ----------
 
+async def _image_variants_impl(message: Message, prompt: str, base_prompt: str, count: int, *, kira: bool) -> None:
+    """Generate `count` variants (2 at a time) and send them as one album plus a button message."""
+    from aiogram.types import InputMediaPhoto
+
+    waiting = await message.reply(f"🎨 Рисую {count} вариант(а)… это может занять несколько минут.")
+    sem = asyncio.Semaphore(2)
+    errors: list[BaseException] = []
+
+    async def one():
+        async with sem:
+            try:
+                return await image_generator.generate(base_prompt, kira=kira)
+            except ExplicitImagePrompt as exc:
+                errors.append(exc)
+                raise
+            except Exception as exc:
+                errors.append(exc)
+                return None
+
+    results = await asyncio.gather(*(one() for _ in range(count)), return_exceptions=True)
+    images = [r for r in results if r is not None and not isinstance(r, BaseException)]
+    blocked = next((e for e in errors if isinstance(e, ExplicitImagePrompt)), None)
+    if blocked is not None:
+        await waiting.edit_text(f"🔞 {html.escape(str(blocked))}")
+        return
+    if not images:
+        log.warning("image variants failed: %s", errors[:2])
+        await waiting.edit_text("🎨 Не получилось сгенерировать ни одного варианта. Попробуй позже.")
+        return
+    caption = f"🎨 <b>Готово: {len(images)} из {count}</b>\n{html.escape(base_prompt[:700])}\n<i>{html.escape(images[0].provider)}</i>"
+    media = [
+        InputMediaPhoto(
+            media=BufferedInputFile(img.data, filename=f"kira-{i + 1}.jpg"),
+            caption=caption if i == 0 else None,
+        )
+        for i, img in enumerate(images[:10])
+    ]
+    try:
+        if len(media) == 1:
+            await message.reply_photo(media[0].media, caption=caption)
+        else:
+            await message.reply_media_group(media)
+        token = image_buttons.remember(message.from_user.id, prompt, kira)
+        await message.answer("Ещё?", reply_markup=image_buttons.keyboard(token))
+        try:
+            await waiting.delete()
+        except Exception:
+            pass
+    except Exception:
+        metrics.errors += 1
+        log.exception("sending image album failed")
+        await waiting.edit_text("🎨 Картинки готовы, но отправить альбом не удалось.")
+
+
 async def _image_generation_impl(message: Message, prompt: str, *, kira: bool = False) -> None:
     if not message.from_user:
         return
@@ -650,9 +705,13 @@ async def _image_generation_impl(message: Message, prompt: str, *, kira: bool = 
             "Киру: <code>/kira_image сидит у окна ночью</code>"
         )
         return
+    base_prompt, count = extract_count(prompt)
+    if count > 1:
+        await _image_variants_impl(message, prompt, base_prompt, count, kira=kira)
+        return
     waiting = await message.reply("🎨 Рисую…")
     try:
-        result = await image_generator.generate(prompt, kira=kira, mature=mature)
+        result = await image_generator.generate(base_prompt, kira=kira, mature=mature)
         caption = "🦊 <b>Кира</b>" if kira else "🎨 <b>Готово</b>"
         if mature:
             caption += " · 18+"

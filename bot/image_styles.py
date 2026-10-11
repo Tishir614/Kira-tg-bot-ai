@@ -44,7 +44,7 @@ def extract_style(prompt: str) -> tuple[str, str | None]:
 
 def styles_help() -> str:
     return "🎨 <b>Стили</b>: " + ", ".join(f"<code>{n}</code>" for n in STYLES) + \
-        "\nПример: <code>/image лиса на крыше, стиль:киберпанк</code> или <code>стиль:рандом</code>\n" + formats_help()
+        "\nПример: <code>/image лиса на крыше, стиль:киберпанк</code> или <code>стиль:рандом</code>\n" + formats_help() + "\nНесколько картинок сразу: <code>количество:4</code> (альбом, максимум " + str(max_variants()) + ")"
 
 
 # Aspect presets: key -> (width, height). Used by providers that accept explicit sizes.
@@ -70,3 +70,25 @@ def extract_format(prompt: str) -> tuple[str, str | None]:
 
 def formats_help() -> str:
     return "Формат: <code>формат:портрет</code> (512×768), <code>формат:квадрат</code> (512×512), <code>формат:широкий</code> (768×512)"
+
+
+_COUNT_RE = re.compile(r"(?i)\b(?:количество|кол-во|вариантов|варианты|count|n)\s*[:=]\s*(\d{1,2})\b")
+
+
+def max_variants() -> int:
+    import os
+
+    try:
+        cap = int(os.getenv("IMAGE_MAX_VARIANTS", "4") or 4)
+    except ValueError:
+        cap = 4
+    return max(1, min(8, cap))
+
+
+def extract_count(prompt: str) -> tuple[str, int]:
+    """Strip `количество:N` (also `вариантов:N`, `count:N`); return (prompt, N clamped to 1..max)."""
+    match = _COUNT_RE.search(prompt or "")
+    if not match:
+        return prompt, 1
+    cleaned = (prompt[:match.start()] + prompt[match.end():]).strip(" ,")
+    return cleaned, max(1, min(int(match.group(1)), max_variants()))
