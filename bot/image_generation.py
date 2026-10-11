@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import aiohttp
 
 from bot.http_client import http_client
+from bot.horde_client import HordeError, ai_horde
 from bot.perchance_furry import PerchanceError, perchance_furry
 from bot.prompt_translate import is_minor_request, to_english_tags
 
@@ -126,8 +127,14 @@ class ImageGenerator:
         final_prompt = ", ".join(pieces)
         negative = "bad anatomy, extra limbs, extra tails, duplicate face, fused body, deformed paws, blurry, low quality, watermark, text, child, young"
 
-        providers = [x.strip().lower() for x in os.getenv("IMAGE_PROVIDERS", "perchance,comfyui").split(",") if x.strip()]
+        providers = [x.strip().lower() for x in os.getenv("IMAGE_PROVIDERS", "horde,perchance,comfyui").split(",") if x.strip()]
         errors: list[str] = []
+        if "horde" in providers and ai_horde.enabled:
+            try:
+                data, ctype = await ai_horde.generate(final_prompt, negative=negative)
+                return GeneratedImage(data, ctype, "AI Horde (furry)")
+            except HordeError as exc:
+                errors.append(str(exc))
         if "perchance" in providers and perchance_furry.enabled:
             try:
                 data, ctype = await perchance_furry.generate(final_prompt, negative=negative)

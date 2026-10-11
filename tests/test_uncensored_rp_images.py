@@ -83,3 +83,43 @@ def test_rp_store_and_summarize(tmp_path, monkeypatch):
         assert len(scene.bot_char) == 1500
         await engine.dispose()
     asyncio.run(scenario())
+
+
+def test_horde_model_pick_and_payload():
+    from bot import horde_client as hc
+    live = [{"name": "Fluffyrock Unbound", "count": 2}, {"name": "Furry Epoch", "count": 0},
+            {"name": "Pony Diffusion XL", "count": 1}, {"name": "stable_diffusion", "count": 9}]
+    assert hc.pick_models(live, ["Fluffyrock Unbound", "Furry Epoch", "Pony"]) == ["Fluffyrock Unbound", "Pony Diffusion XL"]
+    assert hc.pick_models([{"name": "random fluffy mix", "count": 1}], ["nothing"]) == ["random fluffy mix"]
+    assert hc.pick_models([{"name": "stable_diffusion", "count": 3}], ["x"]) == []
+    p = hc.build_payload("fox", "bad", ["Pony Diffusion XL"], 512, 768, 28, 7)
+    assert p["nsfw"] is True and p["censor_nsfw"] is False and p["prompt"].startswith("score_9")
+    assert "###" in p["prompt"] and p["models"] == ["Pony Diffusion XL"]
+
+
+def test_horde_full_flow(monkeypatch):
+    from bot import horde_client as hc
+
+    class Resp:
+        def __init__(self, data=None, raw=b"", status=200):
+            self._d, self._raw, self.status, self.headers = data, raw, status, {"Content-Type": "image/webp"}
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def text(self): return str(self._d)
+        async def json(self, content_type=None): return self._d
+        async def read(self): return self._raw
+
+    class Session:
+        def request(self, method, url, **kw):
+            if url.endswith("/status/models"): return Resp([{"name": "Furry Epoch", "count": 1}])
+            if url.endswith("/generate/async"):
+                assert kw["json"]["nsfw"] is True
+                return Resp({"id": "job1"})
+            if "/generate/check/" in url: return Resp({"done": True})
+            return Resp({"generations": [{"img": "https://r2/x.webp", "censored": False}]})
+        def get(self, url, **kw): return Resp(raw=b"IMG")
+
+    async def fake_get(): return Session()
+    monkeypatch.setattr(hc.http_client, "get", fake_get)
+    data, ctype = asyncio.run(hc.AIHorde().generate("anthro fox"))
+    assert data == b"IMG" and ctype == "image/webp"
