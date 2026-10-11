@@ -732,35 +732,22 @@ async def _help_is_admin(message: Message) -> bool:
 
 
 async def _send_help(message: Message, *, admin: bool | None = None) -> None:
+    """One pretty message with category buttons; it is edited in place (see handlers/help_hub.py)."""
+    from bot.help_hub import categories, keyboard, render_main
+
     admin = await _help_is_admin(message) if admin is None else admin
     me = await message.bot.get_me()
-    url = help_url()
-    if url:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="📚 Открыть справочник команд", url=url)
-        builder.button(text="🛟 Поддержка", url=f"https://t.me/{me.username}?start=support")
-        builder.adjust(1)
-        await message.reply(
-            "🦊 <b>Справочник Kira</b>\nКоманды, примеры и поиск по категориям открываются по кнопке ниже.",
-            reply_markup=builder.as_markup(),
-        )
-        return
-    pages = build_help_pages(admin=admin, legacy_commands=cmd_manager.commands)
-    for index, page in enumerate(pages):
-        markup = admin_chat_keyboard(bot_username=me.username, include_help=False) if index == len(pages) - 1 else None
-        try:
-            if index == 0:
-                await message.reply(page, reply_markup=markup)
-            else:
-                await message.answer(page, reply_markup=markup)
-        except TelegramBadRequest:
-            # Last-resort safety net: even if Telegram changes HTML parsing rules,
-            # /help must still answer instead of silently dying.
-            plain = html.unescape(re.sub(r"<[^>]+>", "", page))
-            if index == 0:
-                await message.reply(plain, parse_mode=None, reply_markup=markup)
-            else:
-                await message.answer(plain, parse_mode=None, reply_markup=markup)
+    cats = categories(bool(admin), cmd_manager.commands)
+    markup = keyboard(
+        cats, "a" if admin else "u",
+        support_url=f"https://t.me/{me.username}?start=support", site_url=help_url() or "",
+    )
+    try:
+        await message.reply(render_main(cats), reply_markup=markup)
+    except TelegramBadRequest:
+        # Last-resort safety net: help must still answer if Telegram rejects the HTML.
+        plain = html.unescape(re.sub(r"<[^>]+>", "", render_main(cats)))
+        await message.reply(plain, parse_mode=None, reply_markup=markup)
 
 
 @router.message(Command("help"))
