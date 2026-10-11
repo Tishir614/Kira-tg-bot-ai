@@ -9,7 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 from aiogram.utils.chat_action import ChatActionSender
 
-from bot import log
+from bot import log, usage_stats
 from bot.ai_client import AIUnavailable, ai
 from bot.rp_engine import NEXT_PROMPT, CharacterLibrary, twist_prompt, RPStore, export_text, random_scene, roll_dice, Scene, build_director_prompt, compose_user_prompt, parse_card, record_turn
 from bot.runtime import metrics
@@ -85,6 +85,7 @@ async def _play_locked(message: Message, scene: Scene, user_text: str, *, retry:
                 instructions=build_director_prompt(base, scene, adult=adult, safeword=profile.safeword if adult else ""),
                 creative=True, max_tokens=900,
             )
+        usage_stats.safe("count", "rp_turns")
         await _send(message, answer)  # answer first; the (possibly slow) summary pass runs last
         if getattr(profile, "voice_replies", False):
             try:

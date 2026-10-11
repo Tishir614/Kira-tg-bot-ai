@@ -94,3 +94,24 @@ class RequestRateLimitMiddleware(BaseMiddleware):
 
 
 request_rate_limit = RequestRateLimitMiddleware()
+
+
+class UsageStatsMiddleware(BaseMiddleware):
+    """Counts messages, commands and distinct (hashed) users/chats. Never stores text."""
+
+    async def __call__(self, handler, event, data):
+        from bot import usage_stats
+
+        if isinstance(event, Message):
+            user = event.from_user
+            usage_stats.safe("seen", user.id if user else None, event.chat.id)
+            usage_stats.safe("count", "messages")
+            text = (event.text or "")
+            if text.startswith("/"):
+                name = text[1:].split(maxsplit=1)[0].split("@")[0].lower()[:32]
+                usage_stats.safe("count", "commands")
+                usage_stats.safe("count", f"cmd:{name}")
+        return await handler(event, data)
+
+
+usage_stats_middleware = UsageStatsMiddleware()

@@ -995,10 +995,22 @@ class KiraAI:
                         pass
             return answer
 
-        if not remember:
-            return await _generate()
-        async with self._conversation_locks.hold((user_id, chat_id)):
-            return await _generate()
+        from bot import usage_stats
+
+        started = time.monotonic()
+        try:
+            if not remember:
+                result = await _generate()
+            else:
+                async with self._conversation_locks.hold((user_id, chat_id)):
+                    result = await _generate()
+        except Exception:
+            usage_stats.safe("count", "ai_fail")
+            raise
+        usage_stats.safe("count", "ai_ok")
+        usage_stats.safe("count", f"mode:{self._last_mode}")
+        usage_stats.safe("latency", time.monotonic() - started)
+        return result
 
 
     def _fold_memory(self, user_id: int, chat_id: int, trimmed: list[tuple[str, str]]) -> None:

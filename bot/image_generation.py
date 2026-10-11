@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import aiohttp
 
 from bot.http_client import http_client
+from bot import usage_stats
 from bot.furry_prompt import compose
 from bot.horde_client import HordeError, ai_horde
 from bot.image_styles import extract_style
@@ -135,16 +136,19 @@ class ImageGenerator:
         if "horde" in providers and ai_horde.enabled:
             try:
                 data, ctype = await ai_horde.generate(final_prompt, negative=negative)
+                usage_stats.safe("count", "img:horde")
                 return GeneratedImage(data, ctype, "AI Horde (furry)")
             except HordeError as exc:
                 errors.append(str(exc))
         if "perchance" in providers and perchance_furry.enabled:
             try:
                 data, ctype = await perchance_furry.generate(final_prompt, negative=negative)
+                usage_stats.safe("count", "img:perchance")
                 return GeneratedImage(data, ctype, "Perchance furry-ai")
             except PerchanceError as exc:
                 errors.append(str(exc))
         if "comfyui" not in providers or not self.base_url:
+            usage_stats.safe("count", "img:fail")
             raise ImageGenerationError("; ".join(errors) or "Нет доступных генераторов изображений.")
         seed = random.SystemRandom().randint(1, 2**63 - 1)
         client_id = f"kira-{uuid.uuid4()}"
@@ -180,6 +184,7 @@ class ImageGenerator:
 
         if not body or len(body) > 25 * 1024 * 1024:
             raise ImageGenerationError("ComfyUI вернул пустой или слишком большой файл.")
+        usage_stats.safe("count", "img:comfyui")
         return GeneratedImage(body, ctype, f"ComfyUI/{self.checkpoint} (local)")
 
 

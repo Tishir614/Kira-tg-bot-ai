@@ -9,7 +9,7 @@ from bot import log
 from bot.config import settings
 from bot.handlers import get_include_routers
 from bot.http_client import http_client
-from bot.middlewares import request_rate_limit, russian_command_alias_middleware
+from bot.middlewares import request_rate_limit, russian_command_alias_middleware, usage_stats_middleware
 from bot.group_features import activity_tracking_middleware
 from bot.group_rules import group_rules_middleware
 from bot.kira_next import kira_next_middleware
@@ -70,6 +70,7 @@ async def init_bot() -> Bot:
     dp = Dispatcher(storage=storage)
     # Cyrillic command aliases must run before filters and other message middleware.
     dp.message.outer_middleware(russian_command_alias_middleware)
+    dp.message.outer_middleware(usage_stats_middleware)
     dp.message.outer_middleware(request_rate_limit)
     dp.message.outer_middleware(activity_tracking_middleware)
     dp.message.outer_middleware(group_rules_middleware)
