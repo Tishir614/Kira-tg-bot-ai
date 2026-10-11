@@ -412,6 +412,8 @@ fi
 
 if [[ "$USE_OLLAMA" -eq 1 ]]; then
   log "Скачиваю локальные модели на диск: $OLLAMA_MODELS (в RAM они будут запускаться строго по очереди)"
+  ADULT_MODEL="$(env_get OLLAMA_ADULT_MODEL)"   # отдельная модель для 18+/RP, если задана в .env
+  if [[ -n "$ADULT_MODEL" ]]; then OLLAMA_MODELS="$OLLAMA_MODELS,$ADULT_MODEL"; fi
   IFS=',' read -r -a OLLAMA_MODEL_LIST <<< "$OLLAMA_MODELS"
   PULLED_ANY=0
   for MODEL in "${OLLAMA_MODEL_LIST[@]}"; do

@@ -46,6 +46,7 @@ class AIConfig:
     ollama_num_ctx: int
     ollama_fast_model: str
     ollama_smart_model: str
+    ollama_adult_model: str
     adaptive_routing: bool
 
     provider_cooldown_seconds: int
@@ -139,6 +140,7 @@ class AIConfig:
             ollama_num_ctx=bounded_int("OLLAMA_NUM_CTX", 4096, 2048, 8192),
             ollama_fast_model=(os.getenv("OLLAMA_FAST_MODEL", "hf.co/mradermacher/Qwen2.5-1.5B-Instruct-uncensored-GGUF:Q4_K_M").strip() or "hf.co/mradermacher/Qwen2.5-1.5B-Instruct-uncensored-GGUF:Q4_K_M"),
             ollama_smart_model=os.getenv("OLLAMA_SMART_MODEL", "").strip(),
+            ollama_adult_model=os.getenv("OLLAMA_ADULT_MODEL", "").strip(),
             adaptive_routing=flag("AI_ADAPTIVE_ROUTING", True),
             provider_cooldown_seconds=max(
                 5, int(os.getenv("AI_PROVIDER_COOLDOWN_SECONDS", "60") or 60)
@@ -462,7 +464,7 @@ class KiraAI:
             text,
         ))
 
-    def _ollama_route_models(self, *, complex_request: bool) -> tuple[str, ...]:
+    def _ollama_route_models(self, *, complex_request: bool, adult: bool = False) -> tuple[str, ...]:
         """Choose a local model without an extra classifier/model call.
 
         Simple conversation stays on the small resident model. Complex requests
@@ -470,11 +472,13 @@ class KiraAI:
         or the legacy configured chain if the smart model is not installed.
         """
         configured = tuple(x for x in self.config.ollama_models if x)
+        adult_model = self.config.ollama_adult_model if adult else ""
         if not self.config.adaptive_routing:
-            return configured
+            return tuple(dict.fromkeys(x for x in (adult_model, *configured) if x))
         preferred = self.config.ollama_smart_model if complex_request else self.config.ollama_fast_model
         ordered: list[str] = []
-        for model in (preferred, self.config.ollama_fast_model, *configured):
+        # Adult/RP sessions try the dedicated (uncensored) model first; the normal chain stays as fallback.
+        for model in (adult_model, preferred, self.config.ollama_fast_model, *configured):
             if model and model not in ordered:
                 ordered.append(model)
         return tuple(ordered)
@@ -905,7 +909,8 @@ class KiraAI:
             complex_request = self.config.deliberate_mode and (
                 route.complex or self._is_complex_prompt(prompt)
             )
-            local_models = self._ollama_route_models(complex_request=complex_request)
+            adult_session = bool(instructions) and instructions.startswith(self.MATURE_PROMPT)
+            local_models = self._ollama_route_models(complex_request=complex_request, adult=adult_session)
             self._last_route = "smart" if complex_request and self.config.ollama_smart_model else "fast"
             effective_max_tokens = max_tokens
             if effective_max_tokens is None and self.config.fast_mode:
@@ -1099,6 +1104,7 @@ class KiraAI:
             "adaptive_routing": self.config.adaptive_routing,
             "fast_model": self.config.ollama_fast_model,
             "smart_model": self.config.ollama_smart_model,
+            "adult_model": self.config.ollama_adult_model,
             "history_messages": self._effective_history_messages(),
             "history_chars": self._effective_history_chars(),
         }

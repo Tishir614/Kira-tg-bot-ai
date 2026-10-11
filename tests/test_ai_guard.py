@@ -111,3 +111,12 @@ def test_mode_guidance_reaches_the_model(monkeypatch):
         await client.respond("привет, как дела?", user_id=1, chat_id=2)
         assert "Режим: разговор" in failover.await_args.args[0][0]["content"]
     asyncio.run(scenario())
+
+
+def test_adult_model_routing(monkeypatch):
+    monkeypatch.setenv("OLLAMA_ADULT_MODEL", "uncensored:1b")
+    monkeypatch.setenv("OLLAMA_MODELS", "qwen3:1.7b")
+    client = KiraAI()
+    assert client._ollama_route_models(complex_request=False, adult=True)[0] == "uncensored:1b"
+    assert "uncensored:1b" not in client._ollama_route_models(complex_request=False, adult=False)
+    assert "qwen3:1.7b" in client._ollama_route_models(complex_request=False, adult=True)  # fallback chain stays
