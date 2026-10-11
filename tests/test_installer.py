@@ -153,3 +153,83 @@ def test_install_spinner_reports_success_and_failure():
     bad = subprocess.run(["bash", "-c", helpers + 'spin "падение" bash -c "echo boom >&2; exit 3"; echo rc=$?'],
                          capture_output=True, text=True, timeout=10)
     assert "rc=1" in bad.stdout and "boom" in bad.stderr and "ошибка" in bad.stderr
+
+
+def _fake_docker_env(tmp_path, home):
+    import os
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    log = tmp_path / "docker.log"
+    for name, body in (("docker", f'echo "$@" >> {log}\nexit 0\n'), ("sudo", "exit 0\n"), ("systemctl", "exit 0\n")):
+        f = bin_dir / name
+        f.write_text("#!/usr/bin/env bash\n" + body)
+        f.chmod(0o755)
+    return {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(home), "NO_COLOR": "1"}, log
+
+
+def _make_project(tmp_path):
+    import shutil
+
+    proj = tmp_path / "newproj"
+    proj.mkdir()
+    for name in ("install.sh", "setup.sh", "example.env"):
+        shutil.copy(ROOT / name, proj / name)
+    shutil.copytree(ROOT / "tools", proj / "tools")
+    (proj / "bot").mkdir()
+    (proj / "bot/__init__.py").write_text("")
+    return proj
+
+
+def test_installer_finds_existing_env_elsewhere_and_never_asks(tmp_path):
+    import hashlib
+
+    home = tmp_path / "home"
+    old = home / "Kira-old"
+    old.mkdir(parents=True)
+    env_text = ("TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789\nOWNER_ID=42\n"
+                "OLLAMA_BASE_URL=http://ollama:11434\nOLLAMA_MODELS=qwen3:1.7b\n")
+    (old / ".env").write_text(env_text)
+    digest = hashlib.sha256((old / ".env").read_bytes()).hexdigest()
+    env, log = _fake_docker_env(tmp_path, home)
+    proj = _make_project(tmp_path)
+
+    r = subprocess.run(["bash", str(proj / "install.sh")], cwd=proj, env=env, stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, timeout=120)
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert "Нашёл готовый .env" in out and str(old / ".env") in out
+    assert (proj / ".env").read_text() == env_text                     # used as is
+    assert hashlib.sha256((old / ".env").read_bytes()).hexdigest() == digest  # original untouched
+    assert "Вставь Telegram BOT TOKEN" not in out and "Telegram user ID" not in out  # never asked
+    assert "up -d --build" in log.read_text()
+
+
+def test_installer_uses_env_in_project_dir_and_explicit_env_file(tmp_path):
+    env, log = _fake_docker_env(tmp_path, tmp_path / "home")
+    (tmp_path / "home").mkdir()
+    proj = _make_project(tmp_path)
+    explicit = tmp_path / "elsewhere.env"
+    explicit.write_text("TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789\nOWNER_ID=7\n")
+    r = subprocess.run(["bash", str(proj / "install.sh")], cwd=proj, env={**env, "ENV_FILE": str(explicit)},
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (proj / ".env").read_text() == explicit.read_text()
+
+    # .env already in the project folder: used as is, no copy from anywhere
+    before = (proj / ".env").read_bytes()
+    r2 = subprocess.run(["bash", str(proj / "install.sh")], cwd=proj, env=env, stdin=subprocess.DEVNULL,
+                        capture_output=True, text=True, timeout=120)
+    assert r2.returncode == 0 and (proj / ".env").read_bytes() == before
+    assert "Использую существующий .env без вопросов" in r2.stdout
+
+
+def test_installer_stops_instead_of_asking_when_env_has_no_token(tmp_path):
+    env, _ = _fake_docker_env(tmp_path, tmp_path / "home")
+    (tmp_path / "home").mkdir()
+    proj = _make_project(tmp_path)
+    (proj / ".env").write_text("OWNER_ID=42\n")
+    r = subprocess.run(["bash", str(proj / "install.sh")], cwd=proj, env=env, stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0 and "нет TOKEN" in (r.stdout + r.stderr)
+    assert (proj / ".env").read_text() == "OWNER_ID=42\n"

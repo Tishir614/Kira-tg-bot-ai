@@ -11,7 +11,8 @@
 #
 # Переменные (необязательно): REPO_URL, DIR, BRANCH,
 #   KIRA_LOCAL_IMAGE=auto|1|0   (auto: ставить ComfyUI только на мощном сервере; по умолчанию auto)
-# Существующий .env используется КАК ЕСТЬ: не переписывается и не дополняется (рядом кладётся копия).
+# Существующий .env ищется автоматически (текущая папка, папка запущенной Киры, типичные места, ENV_FILE=…)
+# и используется КАК ЕСТЬ: без вопросов, не переписывается и не дополняется (рядом кладётся копия).
 set -Eeuo pipefail
 umask 077
 
@@ -154,16 +155,66 @@ else
 fi
 cd "$PROJECT_DIR"
 
-# ---------- 3. ключи ----------
+# ---------- 3. ключи: найти уже существующий .env и использовать его ----------
 step "Ключи и настройки"
-if [[ -f .env ]]; then
+has_token() { [[ -r "$1" ]] && grep -Eq '^TOKEN=.{20,}' "$1" 2>/dev/null; }
+
+# Где мог остаться рабочий .env: явный путь, текущая папка, папка уже запущенного контейнера Киры,
+# типичные места прошлых установок. Файл только читается; найденный в другом месте копируется сюда.
+find_env_file() {
+  local cand c
+  local -a list=()
+  [[ -n "${ENV_FILE:-}" ]] && list+=("$ENV_FILE")
+  list+=("$PWD/.env")
+  if command -v docker >/dev/null 2>&1; then
+    local id wd
+    for id in $(docker ps -aq --filter label=com.docker.compose.service=kira 2>/dev/null | head -3); do
+      wd="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$id" 2>/dev/null || true)"
+      [[ -n "$wd" ]] && list+=("$wd/.env")
+    done
+  fi
+  list+=("$HOME/Kira-tg-bot-ai/.env" "$HOME"/[Kk]ira*/.env "$HOME"/[Kk]ira*/*/.env "$PWD"/../[Kk]ira*/.env
+         /opt/[Kk]ira*/.env /srv/[Kk]ira*/.env /root/[Kk]ira*/.env /home/*/[Kk]ira*/.env /home/*/*/[Kk]ira*/.env)
+  for cand in "${list[@]}"; do
+    for c in $cand; do                       # раскрывает маски
+      if has_token "$c"; then printf '%s' "$(cd "$(dirname "$c")" && pwd)/$(basename "$c")"; return 0; fi
+    done
+  done
+  return 1
+}
+
+if has_token .env; then
+  FOUND_ENV="$PWD/.env"
+elif [[ ! -f .env ]] && FOUND_ENV="$(find_env_file)"; then
+  say "Нашёл готовый .env: $FOUND_ENV"
+  cp -p "$FOUND_ENV" .env                     # оригинал остаётся на месте, не изменяется
+  # Если Кира раньше была запущена из другой папки — продолжаем тот же compose-проект (те же тома и данные).
+  OLD_DIR="$(dirname "$FOUND_ENV")"
+  if [[ "$OLD_DIR" != "$PWD" && -z "${COMPOSE_PROJECT_NAME:-}" ]] && command -v docker >/dev/null 2>&1; then
+    OLD_ID="$(docker ps -aq --filter label=com.docker.compose.service=kira 2>/dev/null | head -1 || true)"
+    if [[ -n "$OLD_ID" ]]; then
+      COMPOSE_PROJECT_NAME="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$OLD_ID" 2>/dev/null || true)"
+      [[ -n "$COMPOSE_PROJECT_NAME" ]] && { export COMPOSE_PROJECT_NAME; say "Продолжаю прежний проект Docker: $COMPOSE_PROJECT_NAME (данные сохранятся)"; }
+    fi
+  fi
+else
+  FOUND_ENV=""
+fi
+
+if [[ -n "$FOUND_ENV" ]]; then
   cp -p .env ".env.backup-$(date +%Y%m%d-%H%M%S)"
   [[ "$(stat -c %a .env 2>/dev/null || echo 600)" =~ ^[0-7]00$ ]] || warn "У .env открытые права доступа (рекомендуется chmod 600 .env) — я их не меняю."
   ls -1t .env.backup-* 2>/dev/null | tail -n +11 | xargs -r rm -f
   export KIRA_KEEP_ENV=1
-  ok "Найден .env — используется как есть (копия сохранена рядом)"
+  ok "Использую существующий .env без вопросов и без изменений"
+elif [[ -f .env ]]; then
+  die ".env есть, но в нём нет TOKEN=… Добавь токен вручную (TOKEN=123456:ABC…) и запусти установщик снова."
+elif [[ -n "${TOKEN:-}" && -n "${OWNER_ID:-}" ]]; then
+  ok "Токен и ID владельца переданы переменными окружения"
 else
-  say "Файла .env ещё нет: понадобятся только токен бота (@BotFather) и ваш Telegram ID."
+  warn ".env нигде не найден (искал в текущей папке, у запущенной Киры и в типичных местах)."
+  say "Если он лежит в другом месте: ENV_FILE=/путь/к/.env bash install.sh"
+  say "Иначе понадобятся только токен бота (@BotFather) и ваш Telegram ID."
 fi
 
 # ---------- 4. Docker, образы, модели ----------

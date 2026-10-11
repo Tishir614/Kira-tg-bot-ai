@@ -5,3 +5,7 @@
 - With an existing `.env` (used as is) every model it mentions is pulled: `OLLAMA_MODELS`, `OLLAMA_MODEL`, `OLLAMA_FAST_MODEL`, `OLLAMA_SMART_MODEL`, `OLLAMA_ADULT_MODEL`.
 - `setup.sh` output is colored with step headings.
 - masturbate and alcohol modules untouched.
+
+## Existing .env is found and used automatically
+- `install.sh` looks for a `.env` with `TOKEN` (project dir, `ENV_FILE=…`, working dir of a running Kira container, `~/Kira*`, `/opt`, `/srv`, `/home/*`), copies it into the project folder (original untouched), continues the previous compose project (same data volumes) and never asks for token/ID. If `.env` has no `TOKEN` it stops with a clear message instead of asking.
+- `setup.sh` now skips the wizard whenever `.env` already has a `TOKEN` (`KIRA_RECONFIGURE=1` brings the wizard back).
