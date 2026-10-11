@@ -1006,8 +1006,12 @@ class KiraAI:
                     result = await _generate()
         except Exception:
             usage_stats.safe("count", "ai_fail")
+            from bot.alerts import monitor
+            monitor.record(False)
             raise
         usage_stats.safe("count", "ai_ok")
+        from bot.alerts import monitor
+        monitor.record(True)
         usage_stats.safe("count", f"mode:{self._last_mode}")
         usage_stats.safe("latency", time.monotonic() - started)
         return result

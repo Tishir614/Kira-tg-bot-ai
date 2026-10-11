@@ -15,6 +15,7 @@ from bot.group_rules import group_rules_middleware
 from bot.kira_next import kira_next_middleware
 from bot.help_ui import telegram_menu_commands
 from bot.recovery import recovery_runtime
+from bot.alerts import alert_runtime
 from bot.runtime import maintenance_runtime, proactive_voice_runtime, reminder_runtime, service_watchdog_runtime
 from bot.sql import RPManager, add_default, create_tables, engine
 from bot.storage import create_fsm_storage
@@ -85,6 +86,7 @@ async def init_bot() -> Bot:
     await maintenance_runtime.start()
     await web_panel_runtime.start()
     await service_watchdog_runtime.start(bot)
+    await alert_runtime.start(bot)
     log.info("KiraBot services initialized")
     try:
         await dp.start_polling(
@@ -93,6 +95,7 @@ async def init_bot() -> Bot:
             close_bot_session=False,
         )
     finally:
+        await alert_runtime.stop()
         await service_watchdog_runtime.stop()
         await reminder_runtime.stop()
         await proactive_voice_runtime.stop()
