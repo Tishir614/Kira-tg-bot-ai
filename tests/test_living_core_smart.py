@@ -114,3 +114,38 @@ def test_memory_folding_summary(tmp_path, monkeypatch):
         assert await ConversationSummaryManager.get(1, 2) == ""
         await engine.dispose()
     asyncio.run(scenario())
+
+
+def test_light_mode(monkeypatch):
+    from bot import perf
+    monkeypatch.setenv("KIRA_LIGHT_MODE", "1")
+    assert perf.light_mode() and perf.fold_batch() == 16 and perf.web_timeout() == 3.0
+    monkeypatch.setenv("KIRA_LIGHT_MODE", "0")
+    assert not perf.light_mode() and perf.fold_batch() == 8 and perf.web_timeout() == 7.0
+
+
+def test_respond_lookups_run_concurrently(monkeypatch):
+    import time as _t
+
+    async def scenario():
+        client = KiraAI()
+        monkeypatch.setattr(client, "_require_ai", lambda: None)
+        monkeypatch.setattr(client, "_text_failover", AsyncMock(return_value="ok ответ"))
+
+        async def slow(*a, **k):
+            await asyncio.sleep(0.1)
+            return [] if k.get("limit") else None
+        for mgr, name in ((AssistantMemoryManager, "context"),):
+            monkeypatch.setattr(mgr, name, slow)
+        from bot import ai_client as ac
+        for mgr in (ac.ChatSpeechManager, ac.NicknameManager, ac.ProfileCustomizationManager,
+                    ac.ConversationSummaryManager, ac.UserFactManager):
+            for attr in ("get", "list"):
+                if hasattr(mgr, attr):
+                    monkeypatch.setattr(mgr, attr, slow)
+        monkeypatch.setattr(AssistantMemoryManager, "add", AsyncMock(return_value=[]))
+        monkeypatch.setattr(UserFactManager, "remember", AsyncMock())
+        start = _t.monotonic()
+        await client.respond("привет", user_id=5, chat_id=1)
+        assert _t.monotonic() - start < 0.35  # six lookups of 0.1 s would take 0.6 s sequentially
+    asyncio.run(scenario())

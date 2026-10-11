@@ -150,7 +150,9 @@ async def record_turn(ai_client, user_id: int, chat_id: int, scene: Scene, user_
     turns = (scene.turns + [{"u": user_text[:2500], "a": answer[:4000]}])
     count = scene.turn_count + 1
     summary = scene.summary
-    if count % SUMMARIZE_EVERY == 0 and len(turns) > 4:
+    from bot.perf import rp_summary_every
+
+    if count % rp_summary_every() == 0 and len(turns) > 4:
         old, turns = turns[:-4], turns[-4:]
         chunk = "\n".join(f"U: {t['u']}\nA: {t['a']}" for t in old)[-9000:]
         try:

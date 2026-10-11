@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 
@@ -15,6 +16,7 @@ from bot.runtime import metrics
 from bot.sql import ChatSettingsManager, MatureManager, UserManager
 
 router = Router(name="rp")
+_locks: dict[tuple[int, int], asyncio.Lock] = {}
 
 HELP = (
     "🎭 <b>Умный RP-модуль Киры</b>\n"
@@ -55,6 +57,17 @@ async def _send(message: Message, text: str) -> None:
 
 async def _play(message: Message, scene: Scene, user_text: str, *, retry: bool = False) -> None:
     uid, cid = message.from_user.id, message.chat.id
+    # Turns of one scene run strictly in order, so a slow summary pass cannot lose the next turn.
+    async with _locks.setdefault((uid, cid), asyncio.Lock()):
+        if len(_locks) > 512:
+            for key in [k for k, v in _locks.items() if not v.locked()][:256]:
+                _locks.pop(key, None)
+        scene = await RPStore.get(uid, cid) if scene.turns or scene.active else scene
+        await _play_locked(message, scene, user_text, retry=retry)
+
+
+async def _play_locked(message: Message, scene: Scene, user_text: str, *, retry: bool = False) -> None:
+    uid, cid = message.from_user.id, message.chat.id
     adult = await _adult(message)
     profile = await MatureManager.get_profile(uid)
     base = ai.MATURE_PROMPT if adult else ai.SYSTEM_PROMPT
@@ -71,14 +84,17 @@ async def _play(message: Message, scene: Scene, user_text: str, *, retry: bool =
                 instructions=build_director_prompt(base, scene, adult=adult, safeword=profile.safeword if adult else ""),
                 creative=True, max_tokens=900,
             )
-        await record_turn(ai, uid, cid, scene, user_text, answer)
-        await _send(message, answer)
+        await _send(message, answer)  # answer first; the (possibly slow) summary pass runs last
         if getattr(profile, "voice_replies", False):
             try:
                 voice = await ai.speech(answer[:1800])
                 await message.reply_voice(BufferedInputFile(voice, filename="kira-rp.ogg"))
             except Exception:
                 log.debug("RP voice failed", exc_info=True)
+        try:
+            await record_turn(ai, uid, cid, scene, user_text, answer)
+        except Exception:
+            log.exception("rp record_turn failed")
     except AIUnavailable as exc:
         await message.reply(f"🦊 {html.escape(str(exc))}")
     except Exception:

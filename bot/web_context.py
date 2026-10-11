@@ -31,10 +31,13 @@ def render(results) -> str:
     ) if lines else ""
 
 
-async def build_context(prompt: str, searcher=None, timeout: float = 7.0) -> str:
+async def build_context(prompt: str, searcher=None, timeout: float | None = None) -> str:
     """Return a grounding block for the prompt, or '' on any failure/timeout."""
     if not needs_web(prompt):
         return ""
+    from bot.perf import web_timeout
+
+    timeout = web_timeout() if timeout is None else timeout
     try:
         if searcher is None:
             from bot.internet_tools import InternetSearch
