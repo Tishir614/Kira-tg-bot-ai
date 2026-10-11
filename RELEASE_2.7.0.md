@@ -6,3 +6,8 @@
 
 ## Untouched
 - masturbate and alcohol modules.
+
+## Also
+- Buttons under generated images: «🔄 Ещё вариант» and «🎨 Другой стиль» (random style). Only the requester can press them.
+- `/forget` and `/kira` added to the help catalog (fixes the "every command has a site description" test).
+- Known stale tests (11) assert strings from old releases (Ollama defaults, v1.2.0 version, DnD redirect, local-image URL, frozen masturbate hash) and were left as is.

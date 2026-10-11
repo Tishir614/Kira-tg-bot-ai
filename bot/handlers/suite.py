@@ -28,6 +28,7 @@ from bot.community_systems import ROLE_RANK, resolve_group_role
 from bot.owners import is_owner
 from bot.ai_client import AIUnavailable, ai
 from bot.events import event_service
+from bot import image_buttons
 from bot.web_context import build_context as build_web_context
 from bot.file_tools import FileAnalysisError, extract_text
 from bot.group_features import GroupActivityManager
@@ -656,9 +657,11 @@ async def _image_generation_impl(message: Message, prompt: str, *, kira: bool = 
         if mature:
             caption += " · 18+"
         caption += f"\n{html.escape(prompt[:700])}\n<i>{html.escape(result.provider)}</i>"
+        token = image_buttons.remember(message.from_user.id, prompt, kira)
         await message.reply_photo(
             BufferedInputFile(result.data, filename="kira-generated.jpg"),
             caption=caption,
+            reply_markup=image_buttons.keyboard(token),
         )
         try:
             await waiting.delete()
@@ -673,6 +676,43 @@ async def _image_generation_impl(message: Message, prompt: str, *, kira: bool = 
         metrics.errors += 1
         log.exception("image generation failed")
         await waiting.edit_text("🎨 Не удалось сгенерировать изображение.")
+
+
+@router.callback_query(F.data.startswith("img:"))
+async def image_buttons_cb(call: CallbackQuery):
+    try:
+        _, action, token = (call.data or "").split(":", 2)
+    except ValueError:
+        await call.answer()
+        return
+    request = image_buttons.lookup(token)
+    if request is None or call.message is None:
+        await call.answer("Запрос устарел — сгенерируй заново командой /image.", show_alert=True)
+        return
+    if call.from_user.id != request.user_id:
+        await call.answer("Это не твоя картинка.", show_alert=True)
+        return
+    prompt = request.prompt
+    if action == "style":
+        prompt = image_buttons.strip_style(prompt) + ", стиль:рандом"
+    await call.answer("Рисую…")
+    try:
+        result = await image_generator.generate(prompt, kira=request.kira)
+    except (ImageGenerationError, ExplicitImagePrompt) as exc:
+        log.warning("image button generation failed: %s", exc)
+        await call.message.reply("🎨 Не получилось, попробуй ещё раз позже.")
+        return
+    except Exception:
+        metrics.errors += 1
+        log.exception("image button generation failed")
+        await call.message.reply("🎨 Не удалось сгенерировать изображение.")
+        return
+    new_token = image_buttons.remember(request.user_id, prompt, request.kira)
+    await call.message.reply_photo(
+        BufferedInputFile(result.data, filename="kira-generated.jpg"),
+        caption=f"🎨 <b>Готово</b>\n{html.escape(prompt[:700])}\n<i>{html.escape(result.provider)}</i>",
+        reply_markup=image_buttons.keyboard(new_token),
+    )
 
 
 @router.message(Command("image"))

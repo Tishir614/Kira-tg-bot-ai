@@ -159,3 +159,15 @@ def test_character_library(tmp_path, monkeypatch):
         assert await lib.get(2, "рэй") is None
         await engine.dispose()
     asyncio.run(scenario())
+
+
+def test_image_buttons():
+    from bot import image_buttons as ib
+    t = ib.remember(7, "лиса, стиль:аниме", False)
+    assert ib.lookup(t).user_id == 7 and ib.lookup("nope") is None
+    assert ib.strip_style("лиса, стиль:аниме") == "лиса"
+    kb = ib.keyboard(t)
+    assert all(len(b.callback_data) <= 64 for b in kb.inline_keyboard[0])
+    for i in range(400):
+        ib.remember(1, "x", False)
+    assert ib.lookup(t) is None  # LRU bounded
