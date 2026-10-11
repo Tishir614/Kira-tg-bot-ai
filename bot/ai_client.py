@@ -887,16 +887,16 @@ class KiraAI:
                 )
             if facts:
                 effective_instructions += user_facts.render_facts(facts) + personas.prompt_for(facts)
+            route = smart_router.classify(prompt, creative=creative)
+            self._last_mode = route.mode
+            if instructions is None or instructions == self.SYSTEM_PROMPT or instructions == self.MATURE_PROMPT:
+                effective_instructions += smart_router.guidance(route, prompt)
             messages = self._openai_messages(
                 rows,
                 prompt,
                 effective_instructions,
                 include_roleplay_history=include_roleplay_history,
             )
-            route = smart_router.classify(prompt, creative=creative)
-            self._last_mode = route.mode
-            if instructions is None or instructions == self.SYSTEM_PROMPT or instructions == self.MATURE_PROMPT:
-                effective_instructions += smart_router.guidance(route, prompt)
             base_temperature = self.config.creative_temperature if creative else self.config.normal_temperature
             effective_temperature = (
                 smart_router.tune_temperature(base_temperature, route) if route.mode != "chat" and not creative

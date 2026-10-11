@@ -99,3 +99,15 @@ def test_mode_guidance_and_language():
     chat = smart_router.classify("hello there how are you today")
     assert "не по-русски" in smart_router.guidance(chat, "hello there how are you today")
     assert "не по-русски" not in smart_router.guidance(smart_router.classify("привет"), "привет")
+
+
+def test_mode_guidance_reaches_the_model(monkeypatch):
+    async def scenario():
+        client = _client(monkeypatch)
+        failover = AsyncMock(return_value="Вот решение с кодом и пояснением.")
+        monkeypatch.setattr(client, "_text_failover", failover)
+        await client.respond("исправь баг в python коде", user_id=1, chat_id=1)
+        assert "техническая задача" in failover.await_args.args[0][0]["content"]
+        await client.respond("привет, как дела?", user_id=1, chat_id=2)
+        assert "Режим: разговор" in failover.await_args.args[0][0]["content"]
+    asyncio.run(scenario())
