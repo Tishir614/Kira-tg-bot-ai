@@ -180,6 +180,7 @@ class ImageGenerator:
             except Exception as exc:
                 raise ImageGenerationError(
                     "ComfyUI недоступен. Запусти: docker compose --profile image up -d --build comfyui. Ошибка: " + str(exc)
+                    + ("".join(f" | {e}" for e in errors))
                 ) from exc
 
         if not body or len(body) > 25 * 1024 * 1024:
