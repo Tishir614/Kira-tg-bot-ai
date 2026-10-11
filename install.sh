@@ -157,64 +157,130 @@ cd "$PROJECT_DIR"
 
 # ---------- 3. ключи: найти уже существующий .env и использовать его ----------
 step "Ключи и настройки"
-has_token() { [[ -r "$1" ]] && grep -Eq '^TOKEN=.{20,}' "$1" 2>/dev/null; }
+# Токен Telegram: допускаем пробелы/кавычки вокруг значения. Формат 123456789:AA… проверяем строго.
+has_token() { [[ -r "$1" && -f "$1" ]] && grep -Eq "^[[:space:]]*TOKEN[[:space:]]*=[[:space:]]*[\"']?[0-9]{5,}:[A-Za-z0-9_-]{20,}" "$1" 2>/dev/null; }
 
-# Где мог остаться рабочий .env: явный путь, текущая папка, папка уже запущенного контейнера Киры,
-# типичные места прошлых установок. Файл только читается; найденный в другом месте копируется сюда.
+# Ищет рабочий .env по шагам: от дешёвых мест к глубокому поиску по всему серверу. Файлы только читаются.
 find_env_file() {
-  local cand c
+  local cand c id wd pid
   local -a list=()
+  # 1) явный путь, текущая папка, папка запущенного контейнера Киры
   [[ -n "${ENV_FILE:-}" ]] && list+=("$ENV_FILE")
   list+=("$PWD/.env")
   if command -v docker >/dev/null 2>&1; then
-    local id wd
     for id in $(docker ps -aq --filter label=com.docker.compose.service=kira 2>/dev/null | head -3); do
       wd="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$id" 2>/dev/null || true)"
       [[ -n "$wd" ]] && list+=("$wd/.env")
     done
   fi
+  # 2) папка работающего процесса бота (python -m bot без Docker)
+  for pid in $(pgrep -f 'python.*(-m bot|bot/__main__|uv run.*bot)' 2>/dev/null | head -5); do
+    [[ -e "/proc/$pid/cwd" ]] && list+=("$(readlink -f "/proc/$pid/cwd" 2>/dev/null)/.env")
+  done
+  # 3) типичные места прошлых установок
   list+=("$HOME/Kira-tg-bot-ai/.env" "$HOME"/[Kk]ira*/.env "$HOME"/[Kk]ira*/*/.env "$PWD"/../[Kk]ira*/.env
          /opt/[Kk]ira*/.env /srv/[Kk]ira*/.env /root/[Kk]ira*/.env /home/*/[Kk]ira*/.env /home/*/*/[Kk]ira*/.env)
   for cand in "${list[@]}"; do
-    for c in $cand; do                       # раскрывает маски
+    for c in $cand; do
       if has_token "$c"; then printf '%s' "$(cd "$(dirname "$c")" && pwd)/$(basename "$c")"; return 0; fi
     done
   done
+  # 4) глубокий поиск по серверу: любой .env / *.env / .env.* с токеном; сначала обычные, потом резервные копии, новее — раньше
+  say "Ищу .env по всему серверу (до 40 секунд)…" >&2
+  local roots="${KIRA_ENV_SEARCH_ROOTS:-}" found="" d
+  if [[ -z "$roots" ]]; then
+    for d in /root /home /opt /srv /var /usr/local /data /mnt /media /storage /app /www /workspace; do [[ -d "$d" ]] && roots+="$d "; done
+  fi
+  # shellcheck disable=SC2086
+  found="$(timeout 40 find $roots -maxdepth 8 \
+      \( -path /proc -o -path /sys -o -path /dev -o -path /usr/lib -o -path /usr/share -o -path /var/lib/docker \
+         -o -path '*/node_modules' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/.git' \) -prune -o \
+      -type f \( -name '.env' -o -name '*.env' -o -name '.env.*' \) -size -64k -printf '%T@ %p\n' 2>/dev/null | sort -rn | cut -d' ' -f2- || true)"
+  # Не угадываем вслепую: сервер может хранить .env других ботов. Сначала файлы, похожие на настройки Киры.
+  local backups="" kira_like="" others=() n_other=0
+  while IFS= read -r c; do
+    [[ -n "$c" && "$c" != "$PWD/.env."* && "$c" != *"/example.env" ]] || continue
+    has_token "$c" || continue
+    if [[ "$(basename "$c")" == .env.backup* || "$(basename "$c")" == *.bak ]]; then backups="${backups:-$c}"; continue; fi
+    if grep -Eq '^(OLLAMA_|AI_LOCAL_ONLY|AI_PROVIDER_ORDER|KIRA_|SUPPORT_CHAT_ID|PANEL_TOKEN|FSM_REDIS_URL|WEB_PANEL_)' "$c" 2>/dev/null \
+       || [[ -d "$(dirname "$c")/bot/handlers" ]]; then
+      kira_like="${kira_like:-$c}"
+    else
+      others+=("$c"); n_other=$((n_other + 1))
+    fi
+  done <<< "$found"
+  if [[ -n "$kira_like" ]]; then printf '%s' "$kira_like"; return 0; fi
+  if (( n_other == 1 )); then
+    warn "Нашёл единственный .env с токеном: ${others[0]} — беру его." >&2
+    printf '%s' "${others[0]}"; return 0
+  elif (( n_other > 1 )); then
+    warn "Нашёл несколько .env с токенами и не знаю, какой ваш (Кира или другой бот):" >&2
+    printf '   %s\n' "${others[@]}" >&2
+    say "Укажи нужный: ENV_FILE=/путь/к/.env bash install.sh" >&2
+    return 1
+  fi
+  if [[ -n "$backups" ]]; then printf '%s' "$backups"; return 0; fi
+  # 5) последний шанс: окружение старого контейнера Киры (там лежит TOKEN из его .env)
+  if command -v docker >/dev/null 2>&1; then
+    id="$(docker ps -aq --filter label=com.docker.compose.service=kira 2>/dev/null | head -1 || true)"
+    if [[ -n "$id" ]]; then
+      local tmp=".env.from-container"
+      docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null \
+        | grep -Ev '^(PATH|HOME|HOSTNAME|LANG|LC_[A-Z]+|PYTHON[A-Z_]*|GPG_KEY|UV_[A-Z_]+|TERM|PWD|SHLVL|_)=' > "$tmp" || true
+      if has_token "$tmp"; then printf '%s' "$PWD/$tmp"; return 0; fi
+      rm -f "$tmp"
+    fi
+  fi
   return 1
 }
 
-if has_token .env; then
-  FOUND_ENV="$PWD/.env"
-elif [[ ! -f .env ]] && FOUND_ENV="$(find_env_file)"; then
-  say "Нашёл готовый .env: $FOUND_ENV"
-  cp -p "$FOUND_ENV" .env                     # оригинал остаётся на месте, не изменяется
-  # Если Кира раньше была запущена из другой папки — продолжаем тот же compose-проект (те же тома и данные).
-  OLD_DIR="$(dirname "$FOUND_ENV")"
-  if [[ "$OLD_DIR" != "$PWD" && -z "${COMPOSE_PROJECT_NAME:-}" ]] && command -v docker >/dev/null 2>&1; then
-    OLD_ID="$(docker ps -aq --filter label=com.docker.compose.service=kira 2>/dev/null | head -1 || true)"
-    if [[ -n "$OLD_ID" ]]; then
-      COMPOSE_PROJECT_NAME="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$OLD_ID" 2>/dev/null || true)"
-      [[ -n "$COMPOSE_PROJECT_NAME" ]] && { export COMPOSE_PROJECT_NAME; say "Продолжаю прежний проект Docker: $COMPOSE_PROJECT_NAME (данные сохранятся)"; }
-    fi
-  fi
-else
-  FOUND_ENV=""
-fi
-
-if [[ -n "$FOUND_ENV" ]]; then
+use_found_env() {
   cp -p .env ".env.backup-$(date +%Y%m%d-%H%M%S)"
   [[ "$(stat -c %a .env 2>/dev/null || echo 600)" =~ ^[0-7]00$ ]] || warn "У .env открытые права доступа (рекомендуется chmod 600 .env) — я их не меняю."
   ls -1t .env.backup-* 2>/dev/null | tail -n +11 | xargs -r rm -f
+  # Если Кира раньше работала в Docker из другой папки — продолжаем тот же compose-проект (те же тома и данные).
+  if command -v docker >/dev/null 2>&1 && [[ -z "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    local old_id old_wd old_proj
+    old_id="$(docker ps -aq --filter label=com.docker.compose.service=kira 2>/dev/null | head -1 || true)"
+    if [[ -n "$old_id" ]]; then
+      old_wd="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$old_id" 2>/dev/null || true)"
+      old_proj="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$old_id" 2>/dev/null || true)"
+      if [[ -n "$old_proj" && "$old_wd" != "$PWD" ]]; then
+        export COMPOSE_PROJECT_NAME="$old_proj"
+        say "Продолжаю прежний проект Docker: $old_proj (данные сохранятся)"
+      fi
+    fi
+  fi
   export KIRA_KEEP_ENV=1
   ok "Использую существующий .env без вопросов и без изменений"
+}
+
+FOUND_ENV=""
+if has_token .env; then
+  use_found_env
 elif [[ -f .env ]]; then
   die ".env есть, но в нём нет TOKEN=… Добавь токен вручную (TOKEN=123456:ABC…) и запусти установщик снова."
+elif FOUND_ENV="$(find_env_file)"; then
+  say "Нашёл готовый .env: $FOUND_ENV"
+  cp -p "$FOUND_ENV" .env                     # оригинал остаётся на месте, не изменяется
+  [[ "$(basename "$FOUND_ENV")" == ".env.from-container" ]] && rm -f "$FOUND_ENV"
+  use_found_env
 elif [[ -n "${TOKEN:-}" && -n "${OWNER_ID:-}" ]]; then
   ok "Токен и ID владельца переданы переменными окружения"
 else
-  warn ".env нигде не найден (искал в текущей папке, у запущенной Киры и в типичных местах)."
-  say "Если он лежит в другом месте: ENV_FILE=/путь/к/.env bash install.sh"
-  say "Иначе понадобятся только токен бота (@BotFather) и ваш Telegram ID."
+  warn ".env с токеном нигде не найден (искал в папке проекта, у запущенной Киры, по процессам, в типичных местах и по всему серверу)."
+  say "Подсказка: sudo find / -name '.env' -type f 2>/dev/null | xargs -r grep -l '^TOKEN='"
+  if [[ -t 0 && -r /dev/tty ]]; then
+    read -r -p "Путь к вашему .env (Enter — ввести токен вручную): " USER_ENV_PATH < /dev/tty || true
+    if [[ -n "${USER_ENV_PATH:-}" ]] && has_token "$USER_ENV_PATH"; then
+      cp -p "$USER_ENV_PATH" .env
+      ok "Беру $USER_ENV_PATH"
+      use_found_env
+    elif [[ -n "${USER_ENV_PATH:-}" ]]; then
+      warn "В этом файле нет TOKEN=… — перехожу к ручному вводу."
+    fi
+  fi
+  [[ "${KIRA_KEEP_ENV:-0}" == "1" ]] || say "Тогда понадобятся только токен бота (@BotFather) и ваш Telegram ID."
 fi
 
 # ---------- 4. Docker, образы, модели ----------

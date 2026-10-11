@@ -233,3 +233,124 @@ def test_installer_stops_instead_of_asking_when_env_has_no_token(tmp_path):
                        capture_output=True, text=True, timeout=60)
     assert r.returncode != 0 and "нет TOKEN" in (r.stdout + r.stderr)
     assert (proj / ".env").read_text() == "OWNER_ID=42\n"
+
+
+def _run_install(proj, env, extra=None):
+    return subprocess.run(["bash", str(proj / "install.sh")], cwd=proj, env={**env, **(extra or {})},
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
+
+
+TOKEN_LINE = "TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789\n"
+
+
+def test_installer_deep_search_finds_env_in_unexpected_folder(tmp_path):
+    home = tmp_path / "home"
+    odd = home / "projects" / "my-telegram-thing"      # name has nothing to do with Kira
+    odd.mkdir(parents=True)
+    (odd / ".env").write_text(TOKEN_LINE + "OWNER_ID=5\n")
+    decoy = home / "other"
+    decoy.mkdir()
+    (decoy / ".env").write_text("SOMETHING=else\n")      # no TOKEN: must be ignored
+    env, _ = _fake_docker_env(tmp_path, home)
+    proj = _make_project(tmp_path)
+    r = _run_install(proj, env, {"KIRA_ENV_SEARCH_ROOTS": str(home)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Нашёл готовый .env" in r.stdout and str(odd / ".env") in r.stdout
+    assert (proj / ".env").read_text() == TOKEN_LINE + "OWNER_ID=5\n"
+
+
+def test_installer_accepts_quoted_token_and_prefers_real_env_over_backups(tmp_path):
+    home = tmp_path / "home"
+    d = home / "bot"
+    d.mkdir(parents=True)
+    (d / ".env.backup-20260101").write_text(TOKEN_LINE + "OWNER_ID=1\n")
+    (d / ".env").write_text('TOKEN="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789"\nOWNER_ID=2\n')
+    env, _ = _fake_docker_env(tmp_path, home)
+    proj = _make_project(tmp_path)
+    r = _run_install(proj, env, {"KIRA_ENV_SEARCH_ROOTS": str(home)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "OWNER_ID=2" in (proj / ".env").read_text()
+
+
+def test_installer_uses_a_backup_when_it_is_the_only_copy(tmp_path):
+    home = tmp_path / "home"
+    d = home / "old"
+    d.mkdir(parents=True)
+    (d / ".env.backup-20260101").write_text(TOKEN_LINE + "OWNER_ID=9\n")
+    env, _ = _fake_docker_env(tmp_path, home)
+    proj = _make_project(tmp_path)
+    r = _run_install(proj, env, {"KIRA_ENV_SEARCH_ROOTS": str(home)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "OWNER_ID=9" in (proj / ".env").read_text()
+
+
+def test_installer_recovers_env_from_old_container_environment(tmp_path):
+    import os
+
+    home = tmp_path / "home"
+    home.mkdir()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "docker.log"
+    docker = bin_dir / "docker"
+    docker.write_text(f'''#!/usr/bin/env bash
+echo "$@" >> {log}
+case "$1" in
+  ps) echo abc123 ;;
+  inspect)
+    case "$*" in
+      *Config.Env*) printf 'PATH=/bin\\nTOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ0123456789\\nOWNER_ID=77\\nHOME=/root\\nOLLAMA_BASE_URL=http://ollama:11434\\n' ;;
+      *com.docker.compose.project.working_dir*) echo /gone/old ;;
+      *) echo oldproj ;;
+    esac ;;
+esac
+exit 0
+''')
+    docker.chmod(0o755)
+    for name in ("sudo", "systemctl"):
+        f = bin_dir / name
+        f.write_text("#!/usr/bin/env bash\nexit 0\n")
+        f.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(home), "NO_COLOR": "1",
+           "KIRA_ENV_SEARCH_ROOTS": str(home)}
+    proj = _make_project(tmp_path)
+    r = _run_install(proj, env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    text = (proj / ".env").read_text()
+    assert "TOKEN=123456789" in text and "OWNER_ID=77" in text and "HOME=" not in text and "PATH=" not in text
+    assert not (proj / ".env.from-container").exists()
+    assert "Продолжаю прежний проект Docker: oldproj" in r.stdout
+    assert "Вставь Telegram BOT TOKEN" not in r.stdout + r.stderr
+
+
+def test_installer_prefers_kira_like_env_and_refuses_to_guess_between_other_bots(tmp_path):
+    home = tmp_path / "home"
+    a, b, k = home / "botA", home / "botB", home / "somewhere" / "x"
+    for d in (a, b, k):
+        d.mkdir(parents=True)
+    (a / ".env").write_text("TOKEN=111111111:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n")
+    (b / ".env").write_text("TOKEN=222222222:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n")
+    env, _ = _fake_docker_env(tmp_path, home)
+
+    # two unrelated bots and nothing Kira-like: do not guess, stop instead of asking (no terminal)
+    proj = _make_project(tmp_path)
+    r = _run_install(proj, env, {"KIRA_ENV_SEARCH_ROOTS": str(home)})
+    assert "не знаю, какой ваш" in r.stdout + r.stderr and "botA" in r.stdout + r.stderr
+    assert not (proj / ".env").exists() or "111111111" not in (proj / ".env").read_text()
+
+    # add a Kira-like .env: it wins even though it is not the newest
+    (k / ".env").write_text(TOKEN_LINE + "OLLAMA_BASE_URL=http://ollama:11434\nOWNER_ID=3\n")
+    old = 1_000_000_000
+    os_utime = __import__("os").utime
+    os_utime(k / ".env", (old, old))
+    proj2 = tmp_path / "proj2"
+    proj2.mkdir()
+    for name in ("install.sh", "setup.sh", "example.env"):
+        shutil_copy = __import__("shutil").copy
+        shutil_copy(ROOT / name, proj2 / name)
+    __import__("shutil").copytree(ROOT / "tools", proj2 / "tools")
+    (proj2 / "bot").mkdir()
+    (proj2 / "bot/__init__.py").write_text("")
+    r2 = _run_install(proj2, env, {"KIRA_ENV_SEARCH_ROOTS": str(home)})
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+    assert "OWNER_ID=3" in (proj2 / ".env").read_text()

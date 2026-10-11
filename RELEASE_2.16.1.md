@@ -9,3 +9,6 @@
 ## Existing .env is found and used automatically
 - `install.sh` looks for a `.env` with `TOKEN` (project dir, `ENV_FILE=…`, working dir of a running Kira container, `~/Kira*`, `/opt`, `/srv`, `/home/*`), copies it into the project folder (original untouched), continues the previous compose project (same data volumes) and never asks for token/ID. If `.env` has no `TOKEN` it stops with a clear message instead of asking.
 - `setup.sh` now skips the wizard whenever `.env` already has a `TOKEN` (`KIRA_RECONFIGURE=1` brings the wizard back).
+
+## Wider .env search (fix: installer still asked for the token)
+The installer now looks for the existing `.env` in this order: `ENV_FILE`, project folder, working dir of a (stopped or running) Kira container, folder of a running `python -m bot` process, usual places, then a deep search of /root, /home, /opt, /srv, /var, /usr/local, /data, /mnt… (any `.env`, `*.env`, `.env.*` with a valid `TOKEN=`; quoted tokens accepted), and finally the environment of the old Kira container. It prefers files that look like Kira's (OLLAMA_*, AI_*, KIRA_*…), uses a lone unrelated match with a warning, refuses to guess between several other bots' files, and uses `.env.backup-*` only if nothing else exists. If nothing is found and a terminal is attached it asks for a PATH (not the token).

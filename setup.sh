@@ -145,7 +145,7 @@ env_get() {
 # KIRA_KEEP_ENV=1 (set by install.sh when .env already exists): the file is used EXACTLY as it is.
 # Nothing is asked, rewritten, merged or appended; services are chosen by reading the existing values.
 # A .env that already has a TOKEN is used automatically (no questions); KIRA_RECONFIGURE=1 runs the full wizard.
-if [[ "${KIRA_RECONFIGURE:-0}" != "1" && -f .env ]] && grep -Eq '^TOKEN=.{20,}' .env 2>/dev/null; then
+if [[ "${KIRA_RECONFIGURE:-0}" != "1" && -f .env ]] && grep -Eq "^[[:space:]]*TOKEN[[:space:]]*=[[:space:]]*[\"']?[0-9]{5,}:[A-Za-z0-9_-]{20,}" .env 2>/dev/null; then
   KIRA_KEEP_ENV=1
 fi
 if [[ "${KIRA_KEEP_ENV:-0}" == "1" && -f .env ]]; then
