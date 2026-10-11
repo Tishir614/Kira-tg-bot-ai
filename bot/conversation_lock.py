@@ -6,6 +6,10 @@ class ConversationLocks:
     def __init__(self):
         self._entries = {}
 
+    def pending(self, key) -> int:
+        """Requests currently holding or waiting for this conversation."""
+        return self._entries.get(key, (None, 0))[1]
+
     @asynccontextmanager
     async def hold(self, key):
         lock, count = self._entries.get(key, (asyncio.Lock(), 0))

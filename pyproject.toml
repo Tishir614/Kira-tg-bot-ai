@@ -1,6 +1,6 @@
 [project]
 name = "kirabot"
-version = "2.10.1"
+version = "2.11.0"
 description = "Modular Telegram assistant with AI, web tools, media, moderation and games"
 authors = [{ name = "Tishir code" }]
 readme = "README.md"

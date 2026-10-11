@@ -56,3 +56,33 @@ def classify(prompt: str, *, creative: bool = False) -> Route:
 
 def tune_temperature(base: float, route: Route) -> float:
     return round(min(1.3, max(0.05, base + route.temperature_delta)), 3)
+
+
+_GUIDANCE = {
+    TECH: (
+        "\nРежим: техническая задача. Сначала молча проверь условия и окружение, затем дай рабочее решение: "
+        "код целиком в блоке, команды без выдумок, коротко объясни причину и укажи допущения. Если данных не хватает, "
+        "задай один точный вопрос вместо догадок."
+    ),
+    ANALYSIS: (
+        "\nРежим: анализ. Структурируй ответ: короткий вывод, затем аргументы и числа, риски и что проверить. "
+        "Различай факты, оценки и предположения; не делай выводов, которых нет в данных."
+    ),
+    CREATIVE: (
+        "\nРежим: творчество. Пиши образно и живо, избегай штампов и пересказа запроса, держи единый стиль и темп."
+    ),
+    CHAT: (
+        "\nРежим: разговор. Отвечай коротко и по-человечески, по сути вопроса; длинные разборы только если просят."
+    ),
+}
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_CYR_RE = re.compile(r"[А-Яа-яЁё]")
+
+
+def guidance(route: Route, prompt: str) -> str:
+    """Mode-specific style hint plus language mirroring for clearly non-Russian prompts."""
+    text = _GUIDANCE.get(route.mode, "")
+    latin, cyr = len(_LATIN_RE.findall(prompt or "")), len(_CYR_RE.findall(prompt or ""))
+    if route.mode != TECH and latin >= 12 and cyr == 0:
+        text += "\nПользователь пишет не по-русски: отвечай на языке его последнего сообщения."
+    return text

@@ -18,6 +18,7 @@ import aiohttp
 from bot.config import settings
 from bot.http_client import http_client
 from bot.conversation_lock import ConversationLocks
+from bot.ai_guard import AIBusy, AdmissionGate, total_timeout, user_backlog_cap
 from bot import perf, personas, smart_router, user_facts
 from bot.sql import ConversationSummaryManager, UserFactManager, AssistantMemoryManager, NicknameManager, ChatSpeechManager, ProfileCustomizationManager
 
@@ -239,6 +240,7 @@ class KiraAI:
         # for the same cores/RAM. Fast local-only mode intentionally serializes inference.
         ai_slots = 1 if self.config.local_only and self.config.fast_mode else settings.max_concurrent_ai
         self._ai_sem = asyncio.Semaphore(max(1, ai_slots))
+        self._gate = AdmissionGate()
         self._conversation_locks = ConversationLocks()
         self._tts_sem = asyncio.Semaphore(max(1, settings.max_concurrent_ai * 2))
         self._states: dict[str, ProviderState] = {
@@ -600,7 +602,7 @@ class KiraAI:
         errors: list[str] = []
         for model in models:
             try:
-                async with self._ai_sem:
+                async with self._gate.slot(self._ai_sem):
                     async with session.post(
                         url,
                         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -628,6 +630,8 @@ class KiraAI:
                             raise RuntimeError(f"{provider}/{model} low-quality output: {issue}")
                         self._mark_ok(state_key, model)
                         return cleaned
+            except AIBusy:
+                raise
             except Exception as exc:
                 errors.append(self._clean_error(exc))
                 self._mark_failure(state_key, exc, cooldown=self._is_transient(str(exc)))
@@ -671,7 +675,7 @@ class KiraAI:
         errors: list[str] = []
         for model_index, model in enumerate(models):
             try:
-                async with self._ai_sem:
+                async with self._gate.slot(self._ai_sem):
                     await self._prepare_ollama_model(model)
                     started = time.monotonic()
                     payload: dict[str, Any] = {
@@ -718,6 +722,8 @@ class KiraAI:
                             raise RuntimeError(f"Ollama/{model} low-quality output: {issue}")
                         self._mark_ok("ollama", model)
                         return cleaned
+            except AIBusy:
+                raise
             except Exception as exc:
                 # If this model was loaded but failed quality/availability checks, unload it
                 # before the next model is tried. This preserves strict sequential RAM use.
@@ -754,6 +760,8 @@ class KiraAI:
                         temperature=temperature,
                         max_tokens=max_tokens,
                     )
+                except AIBusy:
+                    raise
                 except Exception as exc:
                     errors.append("Groq: " + self._clean_error(exc))
             elif provider == "huggingface":
@@ -770,6 +778,8 @@ class KiraAI:
                         temperature=temperature,
                         max_tokens=max_tokens,
                     )
+                except AIBusy:
+                    raise
                 except Exception as exc:
                     errors.append("HF: " + self._clean_error(exc))
             elif provider == "ollama":
@@ -783,6 +793,8 @@ class KiraAI:
                         think=think,
                         model_candidates=ollama_models,
                     )
+                except AIBusy:
+                    raise
                 except Exception as exc:
                     self._mark_failure("ollama", exc, cooldown=self._is_transient(str(exc)))
                     errors.append("Ollama: " + self._clean_error(exc))
@@ -883,6 +895,8 @@ class KiraAI:
             )
             route = smart_router.classify(prompt, creative=creative)
             self._last_mode = route.mode
+            if instructions is None or instructions == self.SYSTEM_PROMPT or instructions == self.MATURE_PROMPT:
+                effective_instructions += smart_router.guidance(route, prompt)
             base_temperature = self.config.creative_temperature if creative else self.config.normal_temperature
             effective_temperature = (
                 smart_router.tune_temperature(base_temperature, route) if route.mode != "chat" and not creative
@@ -941,6 +955,7 @@ class KiraAI:
             # a second heavyweight model or calling any cloud API.
             if (
                 self.config.review_pass
+                and time.monotonic() - started < total_timeout() * 0.5
                 and complex_request
                 and len(answer) >= 40
                 and not (self.config.adaptive_routing and bool(self.config.ollama_smart_model))
@@ -1000,10 +1015,21 @@ class KiraAI:
         started = time.monotonic()
         try:
             if not remember:
-                result = await _generate()
+                result = await asyncio.wait_for(_generate(), timeout=total_timeout())
             else:
-                async with self._conversation_locks.hold((user_id, chat_id)):
-                    result = await _generate()
+                key = (user_id, chat_id)
+                if self._conversation_locks.pending(key) >= user_backlog_cap():
+                    raise AIBusy("Я ещё отвечаю на твои прошлые сообщения, подожди немного.")
+                async with self._conversation_locks.hold(key):
+                    result = await asyncio.wait_for(_generate(), timeout=total_timeout())
+        except AIBusy as exc:
+            usage_stats.safe("count", "ai_busy")
+            raise AIUnavailable(str(exc)) from None
+        except asyncio.TimeoutError:
+            usage_stats.safe("count", "ai_timeout")
+            from bot.alerts import monitor
+            monitor.record(False)
+            raise AIUnavailable("Ответ занял слишком много времени и был прерван. Попробуй ещё раз или упрости запрос.") from None
         except Exception:
             usage_stats.safe("count", "ai_fail")
             from bot.alerts import monitor

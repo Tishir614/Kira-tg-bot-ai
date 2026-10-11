@@ -1,1 +1,1 @@
-{"2026-10-11": {"counters": {"ai_ok": 1}, "users": [], "chats": [], "lat": [], "lat_sum": 0.0, "lat_n": 0, "lat_max": 0.0}}
+{"2026-10-11": {"counters": {"ai_ok": 3, "ai_timeout": 2}, "users": [], "chats": [], "lat": [], "lat_sum": 0.0, "lat_n": 0, "lat_max": 0.0}}
