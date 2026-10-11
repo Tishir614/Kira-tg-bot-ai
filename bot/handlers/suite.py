@@ -338,10 +338,16 @@ async def mature_mode_cmd(message: Message):
 
     if raw in {"accept", "подтверждаю", "принять", "18", "18+"}:
         await UserManager.set_adult_confirmed(message.from_user.id, True)
-        await message.reply(
-            "🔞 Возраст 18+ подтверждён для твоего аккаунта в Kira. "
-            "Теперь можно включить <code>/mature on</code>."
-        )
+        if message.chat.type == "private":
+            await ChatSettingsManager.update(message.chat.id, mature_mode=True)
+            await message.reply(
+                "🔞 Возраст 18+ подтверждён, Mature Mode в этом чате включён сразу. "
+                "Пиши <code>/rp start &lt;сцена&gt;</code> или просто действия в *звёздочках*."
+            )
+        else:
+            await message.reply(
+                "🔞 Возраст 18+ подтверждён. Админ группы включает режим для чата: <code>/mature on</code>."
+            )
         return
 
     if raw in {"revoke", "отозвать", "сбросить"}:
@@ -647,7 +653,7 @@ async def _image_generation_impl(message: Message, prompt: str, *, kira: bool = 
         result = await image_generator.generate(prompt, kira=kira, mature=mature)
         caption = "🦊 <b>Кира</b>" if kira else "🎨 <b>Готово</b>"
         if mature:
-            caption += " · Mature style 18+ (неявный)"
+            caption += " · 18+"
         caption += f"\n{html.escape(prompt[:700])}\n<i>{html.escape(result.provider)}</i>"
         await message.reply_photo(
             BufferedInputFile(result.data, filename="kira-generated.jpg"),

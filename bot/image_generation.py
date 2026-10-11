@@ -11,6 +11,8 @@ from dataclasses import dataclass
 import aiohttp
 
 from bot.http_client import http_client
+from bot.perchance_furry import PerchanceError, perchance_furry
+from bot.prompt_translate import is_minor_request, to_english_tags
 
 
 class ImageGenerationError(RuntimeError):
@@ -18,7 +20,7 @@ class ImageGenerationError(RuntimeError):
 
 
 class ExplicitImagePrompt(ImageGenerationError):
-    pass
+    """Kept for import compatibility; raised only for prompts involving minors."""
 
 
 KIRA_VISUAL = (
@@ -28,19 +30,6 @@ KIRA_VISUAL = (
     "with pale inner fur, fluffy dark fox tail with a white tip, elegant gothic purple aesthetic, "
     "expressive eyes, polished digital furry illustration, atmospheric violet lighting"
 )
-
-_EXPLICIT_PATTERNS = (
-    r"\b(?:sex|fucking|fuck|penetration|blowjob|handjob|cum|orgasm|masturbat|genitals?|vagina|penis|anus)\b",
-    r"\b(?:порно|секс(?:ом|уальный|уальная|уальные)?|трах|ебл|ебат|минет|куни|проникнов|мастурб|конч|оргазм|генитал|вагин|пенис|анус)\w*\b",
-    r"\b(?:nude|naked|explicit nudity)\b",
-    r"\b(?:голая|голый|нагишом|обнажен|обнажён)\w*\b",
-)
-
-
-def _contains_explicit_request(text: str) -> bool:
-    low = " ".join((text or "").lower().split())
-    return any(re.search(pattern, low, flags=re.I) for pattern in _EXPLICIT_PATTERNS)
-
 
 @dataclass(slots=True)
 class GeneratedImage:
@@ -124,17 +113,29 @@ class ImageGenerator:
         prompt = " ".join((prompt or "").split()).strip()
         if not prompt:
             raise ImageGenerationError("Пустой промпт.")
-        if not self.base_url:
-            raise ImageGenerationError("Локальная генерация изображений выключена.")
-        if _contains_explicit_request(prompt):
-            raise ExplicitImagePrompt("Я могу сделать взрослый или чувственный арт, но не явную порнографию/графический секс.")
+        if is_minor_request(prompt):
+            raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
+        from bot.ai_client import ai  # local import: ai_client does not depend on images
 
-        pieces = [KIRA_VISUAL] if kira else []
-        pieces.append(prompt[:1800])
-        pieces.append("mature sensual mood, adult, tasteful, non-explicit" if mature else "safe non-explicit composition")
-        pieces.append("high quality, coherent anatomy, detailed face and paws")
+        english = await to_english_tags(prompt, ai)
+        if is_minor_request(english):
+            raise ExplicitImagePrompt("Изображения с несовершеннолетними или персонажами младше 18 я не рисую.")
+        pieces = [KIRA_VISUAL] if kira else ["adult anthropomorphic furry"]
+        pieces.append(english[:1800])
+        pieces.append("high quality, detailed, coherent anatomy, detailed face and paws")
         final_prompt = ", ".join(pieces)
-        negative = "bad anatomy, extra limbs, extra tails, duplicate face, fused body, deformed paws, blurry, low quality, watermark, text"
+        negative = "bad anatomy, extra limbs, extra tails, duplicate face, fused body, deformed paws, blurry, low quality, watermark, text, child, young"
+
+        providers = [x.strip().lower() for x in os.getenv("IMAGE_PROVIDERS", "perchance,comfyui").split(",") if x.strip()]
+        errors: list[str] = []
+        if "perchance" in providers and perchance_furry.enabled:
+            try:
+                data, ctype = await perchance_furry.generate(final_prompt, negative=negative)
+                return GeneratedImage(data, ctype, "Perchance furry-ai")
+            except PerchanceError as exc:
+                errors.append(str(exc))
+        if "comfyui" not in providers or not self.base_url:
+            raise ImageGenerationError("; ".join(errors) or "Нет доступных генераторов изображений.")
         seed = random.SystemRandom().randint(1, 2**63 - 1)
         client_id = f"kira-{uuid.uuid4()}"
         session = await http_client.get()

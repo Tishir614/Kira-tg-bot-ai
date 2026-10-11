@@ -305,6 +305,25 @@ class MatureSession(TableBase):
     updated_at: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class RPScene(TableBase):
+    __tablename__ = "rp_scenes"
+    __table_args__ = (UniqueConstraint("user_id", "chat_id", name="uq_rp_scene_user_chat"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    chat_id: Mapped[int] = mapped_column(index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    title: Mapped[str] = mapped_column(Text, default="")
+    bot_char: Mapped[str] = mapped_column(Text, default="")
+    user_char: Mapped[str] = mapped_column(Text, default="")
+    setting: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    turns_json: Mapped[str] = mapped_column(Text, default="[]")
+    turn_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Blacklist(TableBase):
     __tablename__ = "blacklist"
     __table_args__ = (

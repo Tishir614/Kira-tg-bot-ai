@@ -97,6 +97,7 @@ RUSSIAN_COMMAND_ALIASES: dict[str, str] = {
     "richlist": "богачи",
     "role": "роль",
     "roll": "кубик",
+    "rp": "рп",
     "rp18": "рп18",
     "rp18_actions": "рп18_действия",
     "rules": "правила",
