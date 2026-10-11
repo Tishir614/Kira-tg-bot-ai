@@ -137,6 +137,21 @@ env_get() {
   return 0
 }
 
+# KIRA_KEEP_ENV=1 (set by install.sh when .env already exists): the file is used EXACTLY as it is.
+# Nothing is asked, rewritten, merged or appended; services are chosen by reading the existing values.
+if [[ "${KIRA_KEEP_ENV:-0}" == "1" && -f .env ]]; then
+  [[ -n "$(env_get TOKEN)" ]] || die "В существующем .env нет TOKEN. Добавь TOKEN=... или запусти bash setup.sh для мастера."
+  log "Использую существующий .env без изменений."
+  OLLAMA_BASE_URL="$(env_get OLLAMA_BASE_URL)"
+  OLLAMA_MODELS="$(env_get OLLAMA_MODELS)"
+  [[ -n "$OLLAMA_MODELS" ]] || OLLAMA_MODELS="$(env_get OLLAMA_MODEL)"
+  USE_OLLAMA=0
+  if [[ "$OLLAMA_BASE_URL" == *"ollama:11434"* ]]; then USE_OLLAMA=1; fi   # Ollama внутри compose
+  USE_LOCAL_IMAGE=0
+  if [[ "$(env_get LOCAL_IMAGE_BASE_URL)" == *"comfyui"* ]]; then USE_LOCAL_IMAGE=1; fi
+  ENABLE_PANEL=0
+  [[ "$(env_get WEB_PANEL_ENABLED)" == "1" ]] && ENABLE_PANEL=1
+else
 EXISTING_ENV=0
 if [[ -f .env ]]; then
   EXISTING_ENV=1
@@ -368,6 +383,8 @@ if [[ -f example.env ]]; then
   ENV_TMP=""
 fi
 ok ".env создан и TOKEN сохранён. Права файла: 600 (только владелец)."
+
+fi
 
 log "Проверяю Docker-образы..."
 # Use supported generic Redis 8 Alpine tag. redis:8.1-alpine no longer exists.

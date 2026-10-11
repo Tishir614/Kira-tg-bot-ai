@@ -2,6 +2,7 @@
 # Безопасный деплой KiraBot на сервер, где уже лежат .env с ключами и данные бота.
 #   bash deploy.sh            — обновить из GitHub (ветка main) и перезапустить
 #   BRANCH=dev bash deploy.sh — другая ветка
+#   NO_ENV_MERGE=1 bash deploy.sh — вообще не менять .env (новые параметры не дописываются)
 #
 # Что гарантируется:
 #   * .env (токены/ключи) НИКОГДА не перезаписывается: git его не трогает (он в .gitignore),
@@ -53,7 +54,7 @@ git merge --ff-only "origin/$BRANCH"
 say "Код обновлён: ${PREV_COMMIT:0:8} -> $(git rev-parse --short HEAD)"
 
 # 3. Только допись новых настроек в .env (существующие строки не меняются ни на байт).
-if command -v python3 >/dev/null && [[ -f example.env ]]; then
+if [[ "${NO_ENV_MERGE:-0}" != "1" ]] && command -v python3 >/dev/null && [[ -f example.env ]]; then
   TMP_ENV=".env.merge.$$"
   cp example.env "$TMP_ENV"
   # merge_env.py читает старый .env и переписывает ВТОРОЙ файл: старые строки + недостающие ключи.
