@@ -183,3 +183,8 @@ def test_furry_prompt_compose():
     assert "rating_questionable" in compose("fox in bikini")[0]
     pos, _ = compose("sitting by window", kira_visual="Kira visual")
     assert "Kira visual" in pos and "anthro furry" not in pos
+
+
+def test_rp_director_inserts():
+    assert "поворот" in rp_engine.twist_prompt() and "не делай ничего за персонажа" in rp_engine.NEXT_PROMPT
+    assert rp_engine.twist_prompt().count("[Режиссёрская вставка]") == 1

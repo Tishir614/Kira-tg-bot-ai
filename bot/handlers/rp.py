@@ -11,7 +11,7 @@ from aiogram.utils.chat_action import ChatActionSender
 
 from bot import log
 from bot.ai_client import AIUnavailable, ai
-from bot.rp_engine import CharacterLibrary, RPStore, export_text, random_scene, roll_dice, Scene, build_director_prompt, compose_user_prompt, parse_card, record_turn
+from bot.rp_engine import NEXT_PROMPT, CharacterLibrary, twist_prompt, RPStore, export_text, random_scene, roll_dice, Scene, build_director_prompt, compose_user_prompt, parse_card, record_turn
 from bot.runtime import metrics
 from bot.sql import ChatSettingsManager, MatureManager, UserManager
 
@@ -27,6 +27,7 @@ HELP = (
     "• <code>/rp retry</code> — переписать последний ответ · <code>/rp undo</code> — откатить ход\n"
     "• <code>/rp save Имя</code> / <code>load Имя</code> / <code>list</code> — библиотека персонажей Киры\n"
     "• <code>/rp roll 2d6+1</code> — бросок кубиков (результат влияет на сюжет) · <code>/rp random</code> — случайная сцена\n"
+    "• <code>/rp next</code> — сцена продолжается сама · <code>/rp twist</code> — неожиданный поворот сюжета\n"
     "• <code>/rp voice on|off</code> — озвучивать ответы Киры голосом\n"
     "• <code>/rp export</code> — скачать сцену файлом\n"
     "• <code>/rp recap</code> — краткое содержание · <code>/rp status</code>\n"
@@ -161,6 +162,16 @@ async def rp_command(message: Message):
         last = scene.turns[-1]["u"]
         scene = await RPStore.update(uid, cid, turns=scene.turns[:-1], turn_count=max(0, scene.turn_count - 1))
         await _play(message, scene, last, retry=True)
+    elif cmd in {"next", "дальше"}:
+        if not scene.active or scene.paused:
+            await message.reply("Нет активной сцены. <code>/rp start ...</code>")
+            return
+        await _play(message, scene, NEXT_PROMPT)
+    elif cmd in {"twist", "поворот"}:
+        if not scene.active or scene.paused:
+            await message.reply("Нет активной сцены. <code>/rp start ...</code>")
+            return
+        await _play(message, scene, twist_prompt())
     elif cmd in {"voice", "голос"}:
         on = rest.lower() in {"on", "вкл", "1", "да"}
         if rest.lower() not in {"on", "off", "вкл", "выкл", "1", "0", "да", "нет"}:
