@@ -1,6 +1,11 @@
 services:
   kira:
-    build: .
+    build:
+      context: .
+      args:
+        # OmniGet is optional; enable with INSTALL_OMNIGET=1 in the shell/.env used for the build.
+        INSTALL_OMNIGET: ${INSTALL_OMNIGET:-0}
+        OMNIGET_URL: ${OMNIGET_URL:-}
     restart: unless-stopped
     env_file:
       - .env

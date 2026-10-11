@@ -86,7 +86,7 @@ async def omniget_info(message: Message) -> None:
         return
     binary = _omniget_bin()
     if not binary:
-        await message.reply("OmniGet CLI не установлен в этом контейнере. Пересобери Kira из релиза 1.4.0.")
+        await message.reply("OmniGet CLI не установлен в этом контейнере (он необязателен). Для обычных загрузок используй /download; чтобы поставить OmniGet, пересобери образ с INSTALL_OMNIGET=1.")
         return
     wait = await message.reply("🔎 OmniGet изучает ссылку…")
     code, output = await _run(binary, "info", url, timeout=120)
@@ -99,7 +99,7 @@ async def omniget_info(message: Message) -> None:
 async def _download(message: Message, url: str, *, audio_only: bool) -> None:
     binary = _omniget_bin()
     if not binary:
-        await message.reply("OmniGet CLI не установлен в этом контейнере. Пересобери Kira из релиза 1.4.0.")
+        await message.reply("OmniGet CLI не установлен в этом контейнере (он необязателен). Для обычных загрузок используй /download; чтобы поставить OmniGet, пересобери образ с INSTALL_OMNIGET=1.")
         return
     wait = await message.reply("📥 OmniGet скачивает…")
     with tempfile.TemporaryDirectory(prefix="kira-omniget-") as tmp:

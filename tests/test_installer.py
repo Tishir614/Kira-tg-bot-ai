@@ -69,3 +69,57 @@ def test_keep_env_mode_does_not_modify_env(tmp_path):
     calls = log.read_text()
     assert "up -d --build" in calls and "--profile ollama" in calls and "--profile image" not in calls
     assert "pull ollama" in calls or "ollama pull" in calls
+
+
+def _run_omniget(tmp_path, curl_body, env_extra=None):
+    """Run deploy/install_omniget.sh with a fake curl. Returns (returncode, stderr+stdout, installed_path)."""
+    import os
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    curl = bin_dir / "curl"
+    curl.write_text("#!/usr/bin/env bash\n" + curl_body)
+    curl.chmod(0o755)
+    dest = tmp_path / "dest"
+    dest.mkdir(exist_ok=True)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "OMNIGET_INSTALL_DIR": str(dest),
+           "INSTALL_OMNIGET": "1", "TARGETARCH": "amd64", **(env_extra or {})}
+    r = subprocess.run(["sh", str(ROOT / "deploy/install_omniget.sh")], env=env, capture_output=True, text=True, timeout=30)
+    return r.returncode, r.stdout + r.stderr, dest / "omniget"
+
+
+def test_omniget_install_never_fails_the_build(tmp_path):
+    # default: skipped without touching the network
+    rc, out, bin_path = _run_omniget(tmp_path, "exit 99\n", {"INSTALL_OMNIGET": "0"})
+    assert rc == 0 and "skipped" in out and not bin_path.exists()
+    # release archive does not exist (404) -> warning, exit 0
+    rc, out, bin_path = _run_omniget(tmp_path, "exit 22\n")
+    assert rc == 0 and "WARNING" in out and not bin_path.exists()
+    # garbage instead of an archive -> warning, exit 0
+    rc, out, bin_path = _run_omniget(tmp_path, 'echo "<html>not found</html>" > "$8"; exit 0\n')
+    assert rc == 0 and "not a valid tar.gz" in out and not bin_path.exists()
+    # unsupported arch -> skip
+    rc, out, _ = _run_omniget(tmp_path, "exit 0\n", {"TARGETARCH": "riscv64"})
+    assert rc == 0 and "unsupported arch" in out
+
+
+def test_omniget_install_success_path(tmp_path):
+    import io
+    import tarfile
+
+    payload = tmp_path / "payload.tar.gz"
+    with tarfile.open(payload, "w:gz") as tar:
+        data = b"#!/bin/sh\necho omniget 0.0.test\n"
+        info = tarfile.TarInfo("release/omniget")
+        info.size, info.mode = len(data), 0o755
+        tar.addfile(info, io.BytesIO(data))
+    rc, out, bin_path = _run_omniget(tmp_path, f'cp "{payload}" "$8"\n')
+    assert rc == 0 and "installed" in out and bin_path.exists()
+
+
+def test_dockerfile_has_no_hard_omniget_dependency():
+    docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "install_omniget.sh" in docker and "INSTALL_OMNIGET=0" in docker
+    assert "releases/download" not in docker and "curl -fL" not in docker
+    compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
+    assert "INSTALL_OMNIGET: ${INSTALL_OMNIGET:-0}" in compose
