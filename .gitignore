@@ -25,3 +25,5 @@ htmlcov/
 static/.updater
 static/logs/
 static/backups/
+
+static/usage_stats.json

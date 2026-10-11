@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from bot import help_hub as hh
+from bot.handlers import commands as c  # imported at collection time: pyrogram needs an event loop
+from bot.handlers.help_hub import hub_callback
 
 
 class Cmd(SimpleNamespace):
@@ -47,8 +49,6 @@ def test_pagination_and_send_help():
     pages = hh.paginate([f"line {i} " + "x" * 200 for i in range(40)], 3000)
     assert len(pages) > 1 and all(sum(len(l) + 1 for l in p) <= 3000 for p in pages)
 
-    from bot.handlers import commands as c
-
     async def scenario():
         reply = AsyncMock()
         msg = SimpleNamespace(reply=reply, bot=SimpleNamespace(get_me=AsyncMock(return_value=SimpleNamespace(username="kira_bot"))),
@@ -61,8 +61,6 @@ def test_pagination_and_send_help():
 
 
 def test_callback_edits_message_in_place():
-    from bot.handlers.help_hub import hub_callback
-
     async def scenario():
         edit = AsyncMock()
         call = SimpleNamespace(data="hub:u:c:0:0", message=SimpleNamespace(edit_text=edit), answer=AsyncMock(),
