@@ -23,3 +23,13 @@ def test_no_alert_on_sporadic_failures():
     for i in range(30):
         m.record(i % 3 != 0)
     assert m.evaluate(1.0) is None
+
+
+def test_merge_env_preserves_existing_keys():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+    from merge_env import merge
+    old = "TOKEN=abc\nGROQ_API_KEY=secret\nIMAGE_PROVIDERS=comfyui\n"
+    new = merge(old, (Path(__file__).resolve().parents[1] / "example.env").read_text())
+    assert new.startswith(old) and new.count("IMAGE_PROVIDERS") == 1 and "HORDE_API_KEY=0000000000" in new
